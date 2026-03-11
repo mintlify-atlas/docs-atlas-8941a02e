@@ -1,0 +1,128 @@
+{
+  "projectType": "api-service",
+  "projectName": "SGRH",
+  "projectDescription": "Hotel Reservation Management System with clean architecture, REST API, and comprehensive booking management features",
+  "theme": "linden",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "architecture",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/domain-layer",
+              "architecture/application-layer",
+              "architecture/infrastructure-layer",
+              "architecture/api-layer"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/clean-architecture",
+              "concepts/domain-driven-design",
+              "concepts/cqrs-pattern"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/database",
+              "configuration/authentication",
+              "configuration/aws-services"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/introduction",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "api/clientes",
+              "api/reservas",
+              "api/habitaciones",
+              "api/tarifas-temporadas",
+              "api/servicios-adicionales",
+              "api/reportes",
+              "api/auditoria"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Domain Models",
+        "groups": [
+          {
+            "group": "Entities",
+            "pages": [
+              "domain/cliente",
+              "domain/reserva",
+              "domain/habitacion",
+              "domain/tarifa-temporada",
+              "domain/servicio-adicional"
+            ]
+          },
+          {
+            "group": "Business Rules",
+            "pages": [
+              "domain/reservation-policies",
+              "domain/validation-guards"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Clean Architecture with Domain-Driven Design",
+    "CQRS pattern for command-query separation",
+    "Client management with validation",
+    "Room reservation and booking system",
+    "Dynamic pricing with seasonal rates",
+    "Additional services management",
+    "Comprehensive audit logging",
+    "JWT-based authentication and authorization",
+    "AWS integration (S3 storage, SES email)",
+    "Swagger/OpenAPI documentation"
+  ],
+  "publicApiSurface": [
+    "POST /api/clientes - Create client",
+    "GET /api/clientes - List clients",
+    "PUT /api/clientes/{id} - Update client",
+    "DELETE /api/clientes/{id} - Delete client",
+    "POST /api/reservas - Create reservation",
+    "GET /api/reservas - List reservations",
+    "PUT /api/reservas/{id} - Update reservation",
+    "POST /api/reservas/{id}/confirmar - Confirm reservation",
+    "POST /api/reservas/{id}/cancelar - Cancel reservation",
+    "GET /api/habitaciones - List rooms",
+    "POST /api/habitaciones - Create room",
+    "PUT /api/habitaciones/{id}/estado - Update room status",
+    "GET /api/tarifas-temporadas - List seasonal rates",
+    "POST /api/servicios-adicionales - Create additional service",
+    "GET /api/reportes - Generate reports",
+    "GET /api/auditoria - Retrieve audit logs"
+  ]
+}
