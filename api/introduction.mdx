@@ -1,222 +1,161 @@
 ---
 title: API Introduction
-description: Overview of the SGRH REST API
+description: Overview of the SGRH REST API architecture and planned endpoints
 ---
 
-Welcome to the **Sistema de Gestión de Reservas de Hoteles (SGRH)** REST API documentation.
+# SGRH API Documentation
+
+Welcome to the **Sistema de Gestión de Reservas de Hoteles (SGRH)** API documentation.
+
+<Note>
+**Current Status**: The SGRH project has a fully implemented domain layer with rich business logic, but the API controllers are currently under development. This documentation describes the planned API surface based on the existing domain model and application architecture.
+</Note>
 
 ## Overview
 
-The SGRH API is a RESTful web service that provides a comprehensive hotel reservation management system. It follows a layered architecture with clean separation of concerns and implements CQRS patterns for optimal performance.
+SGRH is a hotel reservation management system built with clean architecture principles. The system has:
 
-## Base URL
+- ✅ **Complete domain layer** with entities, business rules, and policies
+- ✅ **EF Core persistence** with full database configuration
+- ✅ **CQRS structure** in the application layer (implementation in progress)
+- 🚧 **API controllers** (currently being implemented)
 
-The API is hosted on AWS and accessible at:
+## Current API Endpoints
 
+The following endpoint is currently implemented for database connectivity testing:
+
+### Test Database Connection
+
+```http
+GET /api/test-db/ping
 ```
-https://api.sgrh.com/api
+
+Returns database connection status.
+
+**Response:**
+```json
+{
+  "connected": true
+}
 ```
 
-For local development:
+## Planned API Architecture
 
-```
-http://localhost:5000/api
-https://localhost:5001/api
-```
-
-## API Architecture
-
-The SGRH API is built using:
+The full API will be built using:
 
 - **Framework**: ASP.NET Core 8 Web API
-- **Database**: SQL Server (AWS RDS)
-- **ORM**: Entity Framework Core
+- **Database**: MySQL (configurable to SQL Server)
+- **ORM**: Entity Framework Core 8
 - **Architecture**: Monolithic modular with layered architecture
 - **Pattern**: CQRS (Command Query Responsibility Segregation)
-- **Authentication**: JWT Bearer tokens
+- **Authentication**: JWT Bearer tokens (planned)
 
-## Response Format
+## Planned API Modules
 
-All API responses follow a consistent JSON structure:
-
-### Success Response
-
-```json
-{
-  "success": true,
-  "data": {
-    // Response data here
-  },
-  "message": "Operation completed successfully"
-}
-```
-
-### Error Response
-
-```json
-{
-  "success": false,
-  "errors": [
-    {
-      "code": "ERROR_CODE",
-      "message": "Human-readable error message",
-      "field": "fieldName" // Optional, for validation errors
-    }
-  ],
-  "message": "Operation failed"
-}
-```
-
-### Paginated Response
-
-For list endpoints that support pagination:
-
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      // Array of items
-    ],
-    "pageNumber": 1,
-    "pageSize": 20,
-    "totalPages": 5,
-    "totalCount": 95,
-    "hasPreviousPage": false,
-    "hasNextPage": true
-  }
-}
-```
-
-## HTTP Status Codes
-
-The API uses standard HTTP status codes:
-
-| Status Code | Description |
-|-------------|-------------|
-| `200` | OK - Request succeeded |
-| `201` | Created - Resource created successfully |
-| `204` | No Content - Request succeeded with no response body |
-| `400` | Bad Request - Invalid request parameters |
-| `401` | Unauthorized - Missing or invalid authentication |
-| `403` | Forbidden - Insufficient permissions |
-| `404` | Not Found - Resource not found |
-| `409` | Conflict - Business rule violation or duplicate resource |
-| `422` | Unprocessable Entity - Validation failed |
-| `500` | Internal Server Error - Server error |
-
-## Common Headers
-
-### Request Headers
-
-```http
-Content-Type: application/json
-Authorization: Bearer {your-jwt-token}
-X-Request-Id: {unique-request-id}
-```
-
-### Response Headers
-
-```http
-Content-Type: application/json
-X-Request-Id: {request-id}
-X-Correlation-Id: {correlation-id}
-```
-
-## Rate Limiting
-
-The API implements rate limiting to ensure fair usage:
-
-- **Rate Limit**: 100 requests per minute per IP
-- **Headers**: Rate limit information is included in response headers
-  - `X-RateLimit-Limit`: Maximum requests allowed
-  - `X-RateLimit-Remaining`: Remaining requests in current window
-  - `X-RateLimit-Reset`: Time when the rate limit resets (Unix timestamp)
-
-## Data Formats
-
-### Dates and Times
-
-All dates and times are in **ISO 8601 format** and **UTC timezone**:
-
-```json
-{
-  "fechaReserva": "2024-03-15T14:30:00Z",
-  "fechaEntrada": "2024-03-20",
-  "fechaSalida": "2024-03-25"
-}
-```
-
-### Currency
-
-All monetary values are represented as decimal numbers:
-
-```json
-{
-  "precio": 150.00,
-  "costoTotal": 750.00
-}
-```
-
-## Validation
-
-The API performs comprehensive validation on all inputs:
-
-- **Field validation**: Type, length, format validation
-- **Business rules**: Domain-specific validation (e.g., date ranges, availability)
-- **Reference validation**: Foreign key and relationship validation
-
-Validation errors return a `422` status with detailed field-level error messages.
-
-## API Modules
-
-The SGRH API is organized into the following modules:
+Based on the domain model, the following API modules are planned for implementation:
 
 <CardGroup cols={2}>
-  <Card title="Clientes" icon="users" href="/api/clientes">
-    Client management and registration
+  <Card title="Clientes" icon="users" href="/domain/cliente">
+    Client management - Domain model implemented
   </Card>
-  <Card title="Reservas" icon="calendar-check" href="/api/reservas">
-    Reservation creation and management
+  <Card title="Reservas" icon="calendar-check" href="/domain/reserva">
+    Reservation management - Domain model implemented
   </Card>
-  <Card title="Habitaciones" icon="bed" href="/api/habitaciones">
-    Room inventory and state management
+  <Card title="Habitaciones" icon="bed" href="/domain/habitacion">
+    Room inventory - Domain model implemented
   </Card>
-  <Card title="Tarifas y Temporadas" icon="tag" href="/api/tarifas-temporadas">
-    Pricing and seasonal rates
+  <Card title="Tarifas y Temporadas" icon="tag" href="/domain/tarifa-temporada">
+    Pricing and seasons - Domain model implemented
   </Card>
-  <Card title="Servicios Adicionales" icon="concierge-bell" href="/api/servicios-adicionales">
-    Additional services (spa, meals, etc.)
+  <Card title="Servicios Adicionales" icon="concierge-bell" href="/domain/servicio-adicional">
+    Additional services - Domain model implemented
   </Card>
-  <Card title="Reportes" icon="chart-bar" href="/api/reportes">
-    Business intelligence and analytics
+  <Card title="Reportes" icon="chart-bar" href="/architecture/application-layer">
+    Business intelligence queries (planned)
   </Card>
-  <Card title="Auditoría" icon="clipboard-list" href="/api/auditoria">
-    Audit logs and traceability
+  <Card title="Auditoría" icon="clipboard-list" href="/architecture/domain-layer">
+    Audit logging - Domain model implemented
   </Card>
 </CardGroup>
 
-## Swagger/OpenAPI
+## Domain-Driven Design
 
-Interactive API documentation is available via Swagger UI in development mode:
+The API will expose operations based on the rich domain model:
+
+### Implemented Domain Features
+
+- **Reservation aggregate** with state machine (Pendiente → Confirmada → Finalizada → Cancelada)
+- **Room management** with temporal state tracking
+- **Seasonal pricing** with rate snapshots
+- **Business rule enforcement** via domain policies
+- **Validation guards** preventing invalid states
+
+See the [Domain Models](/domain/reserva) section for complete entity documentation.
+
+## Development Setup
+
+To run the current API:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Muryokusho0/SGRH.git
+    cd SGRH
+    ```
+  </Step>
+
+  <Step title="Configure the database">
+    Update `appsettings.json` with your database connection string:
+    ```json
+    {
+      "ConnectionStrings": {
+        "Default": "Server=localhost;Database=SGRH;User Id=sa;Password=YourPassword;"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Run migrations">
+    ```bash
+    dotnet ef database update --project SGRH.Persistence --startup-project SGRH.Api
+    ```
+  </Step>
+
+  <Step title="Start the API">
+    ```bash
+    cd SGRH.Api
+    dotnet run
+    ```
+  </Step>
+
+  <Step title="Test the connection">
+    ```bash
+    curl http://localhost:5000/api/test-db/ping
+    ```
+  </Step>
+</Steps>
+
+## Swagger Documentation
+
+Access the Swagger UI for interactive API exploration:
 
 ```
 http://localhost:5000/swagger
 ```
 
-## Getting Started
+## Next Steps
 
-To start using the API:
-
-1. **Authenticate** - Obtain a JWT token using the [Authentication](/api/authentication) endpoint
-2. **Explore** - Browse the endpoint documentation for your use case
-3. **Test** - Use the provided curl and C# examples
-4. **Integrate** - Build your application using the SDK or HTTP client
-
-## Support
-
-For API support, please contact:
-
-- **Email**: api-support@sgrh.com
-- **Documentation**: https://docs.sgrh.com
-- **Status Page**: https://status.sgrh.com
+<CardGroup cols={2}>
+  <Card title="Domain Models" icon="cube" href="/domain/cliente">
+    Explore the implemented business entities
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Understand the system architecture
+  </Card>
+  <Card title="Application Layer" icon="gears" href="/architecture/application-layer">
+    Review the CQRS structure
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/database">
+    Configure database and services
+  </Card>
+</CardGroup>

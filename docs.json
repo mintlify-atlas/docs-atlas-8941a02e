@@ -63,22 +63,9 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "Overview",
+            "group": "API Status",
             "pages": [
-              "api/introduction",
-              "api/authentication"
-            ]
-          },
-          {
-            "group": "Resources",
-            "pages": [
-              "api/clientes",
-              "api/reservas",
-              "api/habitaciones",
-              "api/tarifas-temporadas",
-              "api/servicios-adicionales",
-              "api/reportes",
-              "api/auditoria"
+              "api/introduction"
             ]
           }
         ]

@@ -5,7 +5,26 @@ description: 'REST API controllers, routing, and presentation concerns in SGRH'
 
 # API Layer
 
-The API layer (SGRH.Api) provides the **HTTP interface** to the application, exposing REST endpoints that invoke application use cases. Controllers are thin orchestrators that handle HTTP concerns while delegating business logic to the Application layer.
+<Warning>
+**Implementation Status**: The API controllers are currently stub files and not yet implemented. This documentation describes the planned architecture and patterns that will be used when the controllers are built.
+</Warning>
+
+The API layer (SGRH.Api) will provide the **HTTP interface** to the application, exposing REST endpoints that invoke application use cases. Controllers will be thin orchestrators that handle HTTP concerns while delegating business logic to the Application layer.
+
+## Current Implementation
+
+Currently, only one controller is implemented:
+
+- **TestDbController** (`/api/test-db/ping`) - Database connectivity testing
+
+The other controller files exist as empty stubs:
+- ClientesController.cs
+- ReservasController.cs
+- HabitacionesController.cs
+- ServiciosAdicionalesController.cs
+- TarifasTemporadasController.cs
+- ReportesController.cs
+- AuditoriaController.cs
 
 ## Project Structure
 

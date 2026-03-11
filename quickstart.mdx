@@ -184,62 +184,77 @@ dotnet ef database update
 
 ## Exploring the API
 
-### Available Controllers
+### Current API Status
 
-The API exposes the following endpoints:
+<Note>
+The API controllers are currently under development. The project has a complete domain layer with rich business logic, but the HTTP endpoints are not yet implemented.
+</Note>
+
+### Available Endpoint
+
+The only currently implemented endpoint is for database connectivity testing:
+
+```bash
+curl http://localhost:5000/api/test-db/ping
+```
+
+**Response:**
+```json
+{
+  "connected": true
+}
+```
+
+### What's Implemented
+
+While the API endpoints aren't built yet, the following layers are complete:
 
 <CardGroup cols={2}>
-  <Card title="Clientes" icon="users">
-    Manage customer information
-    - `GET /api/clientes`
-    - `POST /api/clientes`
-    - `PUT /api/clientes/{id}`
-    - `DELETE /api/clientes/{id}`
+  <Card title="Domain Models" icon="cube" href="/domain/cliente">
+    All business entities with full logic
+    - Cliente, Reserva, Habitacion
+    - State machines and business rules
+    - Domain policies and validation
   </Card>
   
-  <Card title="Reservas" icon="calendar-check">
-    Create and manage reservations
-    - `GET /api/reservas`
-    - `POST /api/reservas`
-    - `PUT /api/reservas/{id}`
-    - `DELETE /api/reservas/{id}`
+  <Card title="Persistence" icon="database" href="/architecture/infrastructure-layer">
+    Complete EF Core configuration
+    - Entity configurations
+    - Database context
+    - Migration support
   </Card>
   
-  <Card title="Habitaciones" icon="bed">
-    Manage rooms and availability
-    - `GET /api/habitaciones`
-    - `POST /api/habitaciones`
-    - `PUT /api/habitaciones/{id}`
-    - `GET /api/habitaciones/disponibles`
+  <Card title="CQRS Structure" icon="arrows-split-up-and-left" href="/architecture/application-layer">
+    Application layer organized
+    - Command/Query folders
+    - DTO structures
+    - Ready for implementation
   </Card>
   
-  <Card title="Reportes" icon="chart-line">
-    Generate reports and analytics
-    - `GET /api/reportes/ocupacion`
-    - `GET /api/reportes/ingresos`
-    - `GET /api/reportes/reservas`
+  <Card title="Clean Architecture" icon="layer-group" href="/architecture/overview">
+    Proper layer separation
+    - Domain independence
+    - Dependency inversion
+    - Testable design
   </Card>
 </CardGroup>
 
-### Testing the API
+### Exploring with Swagger
 
-You can test the API using:
+The Swagger UI is available and shows the current API surface:
 
 <CodeGroup>
 ```bash cURL
-curl -X GET "https://localhost:7001/api/habitaciones" \
-  -H "accept: application/json"
+curl http://localhost:5000/api/test-db/ping
 ```
 
-```bash Postman
-# Import the Swagger JSON into Postman
-# URL: https://localhost:7001/swagger/v1/swagger.json
-```
-
-```bash HTTPie
-http GET https://localhost:7001/api/habitaciones
+```bash Browser
+# Open in browser
+http://localhost:5000/swagger
 ```
 </CodeGroup>
+
+The Swagger UI will show the TestDbController with the `/api/test-db/ping` endpoint.
 
 ## Running the Web Client
 
