@@ -1,0 +1,452 @@
+---
+title: Reservation Policies
+description: Business rules and domain policies for reservation management
+---
+
+The `IReservaDomainPolicy` interface defines the contract for enforcing complex business rules in the reservation domain. It acts as a bridge between domain entities and application/infrastructure layers, enabling validation and data retrieval without violating domain model integrity.
+
+## Overview
+
+Reservation policies encapsulate business logic that requires external data or complex queries. The `Reserva` aggregate delegates to these policies to:
+
+- Validate room availability and maintenance schedules
+- Determine applicable pricing based on seasons and categories
+- Enforce service availability rules
+- Ensure business rule consistency
+
+**Namespace:** `SGRH.Domain.Abstractions.Policies`
+
+**Source:** `~/workspace/source/SGRH.Domain/Abstractions/Policies/IReservaDomainPolicy.cs`
+
+## Policy Interface
+
+```csharp
+public interface IReservaDomainPolicy
+{
+    // Season determination
+    int? GetTemporadaId(DateTime fechaEntrada);
+
+    // Room availability validation
+    void EnsureHabitacionDisponible(int habitacionId, DateTime fechaEntrada, 
+        DateTime fechaSalida, int? reservaId);
+
+    // Maintenance validation
+    void EnsureHabitacionNoEnMantenimiento(int habitacionId, DateTime fechaEntrada, 
+        DateTime fechaSalida);
+
+    // Pricing calculation
+    decimal GetTarifaAplicada(int habitacionId, DateTime fechaEntrada);
+
+    // Service availability validation
+    void EnsureServicioDisponibleEnTemporada(int servicioAdicionalId, int? temporadaId);
+
+    // Service pricing
+    decimal GetPrecioServicioAplicado(int reservaId, int servicioAdicionalId);
+}
+```
+
+## Policy Methods
+
+### GetTemporadaId
+
+```csharp
+int? GetTemporadaId(DateTime fechaEntrada);
+```
+
+Determines which season applies for a given check-in date.
+
+**Returns:**
+- `int`: Season ID if a season covers the date
+- `null`: If no season is defined for that date (uses base pricing)
+
+**Implementation Logic:**
+
+```csharp
+var temporada = await _temporadaRepository
+    .GetAll()
+    .FirstOrDefaultAsync(t => t.Contiene(fechaEntrada));
+
+return temporada?.TemporadaId;
+```
+
+**Usage in Domain:**
+
+```csharp
+// From Reserva.AgregarServicio()
+var temporadaId = policy.GetTemporadaId(FechaEntrada);
+policy.EnsureServicioDisponibleEnTemporada(servicioAdicionalId, temporadaId);
+```
+
+### EnsureHabitacionDisponible
+
+```csharp
+void EnsureHabitacionDisponible(int habitacionId, DateTime fechaEntrada, 
+    DateTime fechaSalida, int? reservaId);
+```
+
+Validates that a room is available for the specified date range.
+
+**Parameters:**
+- **habitacionId**: Room to check
+- **fechaEntrada**: Check-in date
+- **fechaSalida**: Check-out date
+- **reservaId**: Current reservation ID (null for new reservations)
+
+**Business Rule:**
+A room is available if it has no **other** confirmed reservations overlapping the date range.
+
+**Implementation Logic:**
+
+```csharp
+var hasConflict = await _reservaRepository
+    .GetAll()
+    .Where(r => r.ReservaId != reservaId && 
+                r.EstadoReserva == EstadoReserva.Confirmada)
+    .SelectMany(r => r.Habitaciones)
+    .AnyAsync(h => h.HabitacionId == habitacionId &&
+                   // Overlap check
+                   fechaEntrada < r.FechaSalida &&
+                   fechaSalida > r.FechaEntrada);
+
+if (hasConflict)
+    throw new ConflictException(
+        $"La habitación {habitacionId} no está disponible en el rango solicitado.");
+```
+
+**Key Points:**
+- Excludes the current reservation (allows date changes)
+- Only checks `Confirmada` reservations
+- Uses date overlap logic
+
+### EnsureHabitacionNoEnMantenimiento
+
+```csharp
+void EnsureHabitacionNoEnMantenimiento(int habitacionId, DateTime fechaEntrada, 
+    DateTime fechaSalida);
+```
+
+Validates that a room is not in maintenance during the reservation period.
+
+**Implementation Logic:**
+
+```csharp
+var habitacion = await _habitacionRepository.GetByIdAsync(habitacionId);
+
+// Check if any maintenance periods overlap with reservation dates
+var mantenimientoConflict = habitacion.Historial
+    .Where(h => h.EstadoHabitacion == EstadoHabitacion.Mantenimiento)
+    .Any(h => 
+    {
+        var inicio = h.FechaInicio;
+        var fin = h.FechaFin ?? DateTime.MaxValue; // Open maintenance
+        
+        return fechaEntrada < fin && fechaSalida > inicio;
+    });
+
+if (mantenimientoConflict)
+    throw new BusinessRuleViolationException(
+        $"La habitación {habitacionId} estará en mantenimiento durante las fechas solicitadas.");
+```
+
+**Key Points:**
+- Checks historical maintenance records
+- Handles open maintenance periods (`FechaFin = null`)
+- Prevents reservations conflicting with scheduled maintenance
+
+### GetTarifaAplicada
+
+```csharp
+decimal GetTarifaAplicada(int habitacionId, DateTime fechaEntrada);
+```
+
+Calculates the applicable rate for a room based on its category and the season.
+
+**Returns:**
+- Seasonal rate from `TarifaTemporada` if available
+- Base rate from `CategoriaHabitacion.PrecioBase` as fallback
+
+**Implementation Logic:**
+
+```csharp
+var habitacion = await _habitacionRepository.GetByIdAsync(habitacionId);
+var temporadaId = GetTemporadaId(fechaEntrada);
+
+if (temporadaId.HasValue)
+{
+    var tarifaTemporada = await _tarifaRepository
+        .GetByCategoriaYTemporada(
+            habitacion.CategoriaHabitacionId, 
+            temporadaId.Value
+        );
+    
+    if (tarifaTemporada != null)
+        return tarifaTemporada.Precio;
+}
+
+// Fallback to base price
+var categoria = await _categoriaRepository.GetByIdAsync(habitacion.CategoriaHabitacionId);
+return categoria.PrecioBase;
+```
+
+**Usage in Domain:**
+
+```csharp
+// From Reserva.AgregarHabitacion()
+var tarifa = policy.GetTarifaAplicada(habitacionId, FechaEntrada);
+_habitaciones.Add(new DetalleReserva(ReservaId, habitacionId, tarifa));
+```
+
+### EnsureServicioDisponibleEnTemporada
+
+```csharp
+void EnsureServicioDisponibleEnTemporada(int servicioAdicionalId, int? temporadaId);
+```
+
+Validates that a service is available during the specified season.
+
+**Parameters:**
+- **servicioAdicionalId**: Service to validate
+- **temporadaId**: Target season (null = no season restriction)
+
+**Implementation Logic:**
+
+```csharp
+var servicio = await _servicioRepository.GetByIdAsync(servicioAdicionalId);
+
+if (!servicio.EstaDisponibleEn(temporadaId))
+    throw new BusinessRuleViolationException(
+        $"El servicio '{servicio.NombreServicio}' no está disponible en la temporada solicitada.");
+```
+
+**Usage in Domain:**
+
+```csharp
+// From Reserva.AgregarServicio()
+var temporadaId = policy.GetTemporadaId(FechaEntrada);
+policy.EnsureServicioDisponibleEnTemporada(servicioAdicionalId, temporadaId);
+```
+
+### GetPrecioServicioAplicado
+
+```csharp
+decimal GetPrecioServicioAplicado(int reservaId, int servicioAdicionalId);
+```
+
+Calculates the service price based on the **highest** room category in the reservation.
+
+**Business Rule:**
+Service pricing varies by room category. When a reservation has multiple rooms, use the maximum price to ensure premium service quality.
+
+**Implementation Logic:**
+
+```csharp
+var reserva = await _reservaRepository.GetByIdAsync(reservaId);
+
+// Get all room categories in this reservation
+var categoriaIds = await _habitacionRepository
+    .GetAll()
+    .Where(h => reserva.Habitaciones.Select(d => d.HabitacionId).Contains(h.HabitacionId))
+    .Select(h => h.CategoriaHabitacionId)
+    .ToListAsync();
+
+// Get service prices for these categories
+var precios = await _servicioPrecioRepository
+    .GetAll()
+    .Where(sp => sp.ServicioAdicionalId == servicioAdicionalId &&
+                 categoriaIds.Contains(sp.CategoriaHabitacionId))
+    .Select(sp => sp.Precio)
+    .ToListAsync();
+
+if (!precios.Any())
+    throw new NotFoundException(
+        $"No hay precio configurado para el servicio {servicioAdicionalId}");
+
+return precios.Max();
+```
+
+**Example:**
+
+Reservation with:
+- Room 101: Standard category → Service price $20
+- Room 201: Suite category → Service price $35
+
+Applied service price: **$35** (maximum)
+
+## Integration with Reserva Aggregate
+
+### Policy Injection
+
+Methods requiring validation receive the policy as a parameter:
+
+```csharp
+public void AgregarHabitacion(int habitacionId, IReservaDomainPolicy policy)
+{
+    Guard.AgainstNull(policy, nameof(policy));
+    EnsureEditable();
+    
+    // Use policy for validation and data
+    policy.EnsureHabitacionDisponible(habitacionId, FechaEntrada, FechaSalida, ReservaId);
+    policy.EnsureHabitacionNoEnMantenimiento(habitacionId, FechaEntrada, FechaSalida);
+    
+    var tarifa = policy.GetTarifaAplicada(habitacionId, FechaEntrada);
+    _habitaciones.Add(new DetalleReserva(ReservaId, habitacionId, tarifa));
+}
+```
+
+### Method Flow Examples
+
+<Accordion title="Adding a Room">
+  ```csharp
+  // 1. Application layer calls domain
+  reserva.AgregarHabitacion(habitacionId: 101, policy: domainPolicy);
+  
+  // 2. Domain validates editability
+  EnsureEditable(); // Throws if not Pendiente
+  
+  // 3. Domain delegates to policy
+  policy.EnsureHabitacionDisponible(101, fechaEntrada, fechaSalida, reservaId);
+  policy.EnsureHabitacionNoEnMantenimiento(101, fechaEntrada, fechaSalida);
+  
+  // 4. Domain retrieves pricing via policy
+  var tarifa = policy.GetTarifaAplicada(101, fechaEntrada);
+  
+  // 5. Domain creates snapshot
+  _habitaciones.Add(new DetalleReserva(reservaId, 101, tarifa));
+  ```
+</Accordion>
+
+<Accordion title="Changing Dates">
+  ```csharp
+  // 1. Application layer calls domain
+  reserva.CambiarFechas(nuevaEntrada, nuevaSalida, policy);
+  
+  // 2. Domain validates dates and editability
+  EnsureEditable();
+  Guard.AgainstInvalidDateRange(nuevaEntrada, nuevaSalida, ...);
+  
+  // 3. Re-validate ALL rooms with new dates
+  foreach (var detalle in _habitaciones)
+  {
+      policy.EnsureHabitacionDisponible(detalle.HabitacionId, ...);
+      policy.EnsureHabitacionNoEnMantenimiento(detalle.HabitacionId, ...);
+  }
+  
+  // 4. Re-validate ALL services with new season
+  var temporadaId = policy.GetTemporadaId(nuevaEntrada);
+  foreach (var servicio in _servicios)
+  {
+      policy.EnsureServicioDisponibleEnTemporada(servicio.ServicioAdicionalId, temporadaId);
+  }
+  
+  // 5. Update dates
+  FechaEntrada = nuevaEntrada;
+  FechaSalida = nuevaSalida;
+  
+  // 6. Recalculate pricing snapshots
+  RecalcularSnapshots(policy);
+  ```
+</Accordion>
+
+<Accordion title="Adding a Service">
+  ```csharp
+  // 1. Application layer calls domain
+  reserva.AgregarServicio(servicioId: 5, cantidad: 2, policy);
+  
+  // 2. Domain validates prerequisites
+  EnsureEditable();
+  if (_habitaciones.Count == 0)
+      throw new BusinessRuleViolationException("Debe agregar habitaciones primero.");
+  
+  // 3. Domain determines season
+  var temporadaId = policy.GetTemporadaId(FechaEntrada);
+  
+  // 4. Policy validates service availability
+  policy.EnsureServicioDisponibleEnTemporada(servicioId, temporadaId);
+  
+  // 5. Policy calculates price (max by room category)
+  var precio = policy.GetPrecioServicioAplicado(ReservaId, servicioId);
+  
+  // 6. Domain creates snapshot
+  _servicios.Add(new ReservaServicioAdicional(ReservaId, servicioId, 2, precio));
+  ```
+</Accordion>
+
+## Policy Implementation
+
+The interface is typically implemented in the **Application** or **Infrastructure** layer:
+
+```csharp
+public class ReservaDomainPolicy : IReservaDomainPolicy
+{
+    private readonly IRepository<Reserva> _reservaRepo;
+    private readonly IRepository<Habitacion> _habitacionRepo;
+    private readonly IRepository<Temporada> _temporadaRepo;
+    private readonly IRepository<TarifaTemporada> _tarifaRepo;
+    private readonly IRepository<ServicioAdicional> _servicioRepo;
+    private readonly IRepository<ServicioCategoriaPrecio> _servicioPrecioRepo;
+    
+    public ReservaDomainPolicy(
+        IRepository<Reserva> reservaRepo,
+        IRepository<Habitacion> habitacionRepo,
+        IRepository<Temporada> temporadaRepo,
+        IRepository<TarifaTemporada> tarifaRepo,
+        IRepository<ServicioAdicional> servicioRepo,
+        IRepository<ServicioCategoriaPrecio> servicioPrecioRepo)
+    {
+        _reservaRepo = reservaRepo;
+        _habitacionRepo = habitacionRepo;
+        _temporadaRepo = temporadaRepo;
+        _tarifaRepo = tarifaRepo;
+        _servicioRepo = servicioRepo;
+        _servicioPrecioRepo = servicioPrecioRepo;
+    }
+    
+    // Implement all interface methods...
+}
+```
+
+## Design Benefits
+
+<Accordion title="Domain Model Purity">
+  - Domain entities don't directly access repositories
+  - No infrastructure dependencies in domain layer
+  - Enables unit testing with mock policies
+  - Clear separation of concerns
+</Accordion>
+
+<Accordion title="Business Rule Centralization">
+  - Complex rules encapsulated in policy implementations
+  - Consistent validation across application
+  - Easy to modify business logic without changing entities
+  - Supports multiple policy implementations (e.g., different pricing strategies)
+</Accordion>
+
+<Accordion title="Testability">
+  ```csharp
+  // Unit test with mock policy
+  var mockPolicy = new Mock<IReservaDomainPolicy>();
+  mockPolicy.Setup(p => p.GetTarifaAplicada(101, It.IsAny<DateTime>()))
+            .Returns(150.00m);
+  
+  var reserva = new Reserva(clienteId: 1, fechaEntrada, fechaSalida);
+  reserva.AgregarHabitacion(101, mockPolicy.Object);
+  
+  Assert.Equal(150.00m, reserva.CostoTotal);
+  ```
+</Accordion>
+
+<Accordion title="Performance Optimization">
+  Policy implementations can:
+  - Use caching for frequently accessed data (seasons, categories)
+  - Batch queries for multiple validations
+  - Optimize database queries with EF Core includes
+  - Use compiled queries for hot paths
+</Accordion>
+
+## Related Documentation
+
+- [Reserva](/domain/reserva) - Aggregate root using policies
+- [Habitacion](/domain/habitacion) - Room entity and state management
+- [ServicioAdicional](/domain/servicio-adicional) - Service availability
+- [TarifaTemporada](/domain/tarifa-temporada) - Seasonal pricing
+- [Validation Guards](/domain/validation-guards) - Input validation

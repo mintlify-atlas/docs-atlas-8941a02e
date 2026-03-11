@@ -1,0 +1,676 @@
+---
+title: Domain-Driven Design
+description: DDD patterns and practices in the SGRH domain layer
+---
+
+## Overview
+
+**Domain-Driven Design (DDD)** is a software development approach that places the business domain at the center of the software design. SGRH implements core DDD tactical patterns to model the hotel reservation system.
+
+<Note>
+The domain layer (`SGRH.Domain`) contains the **heart of the business logic** - all the rules that make the hotel reservation system work correctly.
+</Note>
+
+## Core DDD Building Blocks
+
+### Entities
+
+Entities are objects with a unique identity that persists over time. In SGRH, all entities inherit from `EntityBase`:
+
+```csharp SGRH.Domain/Base/EntityBase.cs
+namespace SGRH.Domain.Base;
+
+public abstract class EntityBase
+{
+    protected abstract object GetKey();
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is not EntityBase other) return false;
+        if (ReferenceEquals(this, other)) return true;
+        if (GetType() != other.GetType()) return false;
+        return GetKey().Equals(other.GetKey());
+    }
+
+    public override int GetHashCode() => GetKey().GetHashCode();
+
+    public static bool operator ==(EntityBase? a, EntityBase? b)
+        => a is null ? b is null : a.Equals(b);
+
+    public static bool operator !=(EntityBase? a, EntityBase? b)
+        => !(a == b);
+}
+```
+
+<Tip>
+`EntityBase` provides **identity-based equality** - two entities are equal if they have the same ID, regardless of their property values.
+</Tip>
+
+### Entity Example: Cliente
+
+A simple entity with validation and encapsulated state:
+
+```csharp SGRH.Domain/Entities/Clientes/Cliente.cs
+using SGRH.Domain.Base;
+using SGRH.Domain.Common;
+
+namespace SGRH.Domain.Entities.Clientes;
+
+public sealed class Cliente : EntityBase
+{
+    public int ClienteId { get; private set; }
+    public string NationalId { get; private set; } = default!;
+    public string NombreCliente { get; private set; } = default!;
+    public string ApellidoCliente { get; private set; } = default!;
+    public string Email { get; private set; } = default!;
+    public string Telefono { get; private set; } = default!;
+
+    private Cliente() { } // EF Core constructor
+
+    public Cliente(
+        string nationalId,
+        string nombreCliente,
+        string apellidoCliente,
+        string email,
+        string telefono)
+    {
+        Guard.AgainstNullOrWhiteSpace(nationalId, nameof(nationalId), 20);
+        Guard.AgainstNullOrWhiteSpace(nombreCliente, nameof(nombreCliente), 100);
+        Guard.AgainstNullOrWhiteSpace(apellidoCliente, nameof(apellidoCliente), 100);
+        Guard.AgainstNullOrWhiteSpace(email, nameof(email), 100);
+        Guard.AgainstNullOrWhiteSpace(telefono, nameof(telefono), 20);
+
+        NationalId = nationalId;
+        NombreCliente = nombreCliente;
+        ApellidoCliente = apellidoCliente;
+        Email = email;
+        Telefono = telefono;
+    }
+
+    public void ActualizarDatos(
+        string nombreCliente,
+        string apellidoCliente,
+        string email,
+        string telefono)
+    {
+        Guard.AgainstNullOrWhiteSpace(nombreCliente, nameof(nombreCliente), 100);
+        Guard.AgainstNullOrWhiteSpace(apellidoCliente, nameof(apellidoCliente), 100);
+        Guard.AgainstNullOrWhiteSpace(email, nameof(email), 100);
+        Guard.AgainstNullOrWhiteSpace(telefono, nameof(telefono), 20);
+
+        NombreCliente = nombreCliente;
+        ApellidoCliente = apellidoCliente;
+        Email = email;
+        Telefono = telefono;
+    }
+
+    protected override object GetKey() => ClienteId;
+}
+```
+
+**Key DDD Principles:**
+
+<Steps>
+  <Step title="Encapsulation">
+    All properties have `private set` - they can only be modified through public methods that enforce business rules.
+  </Step>
+  
+  <Step title="Validation">
+    The constructor and methods use `Guard` clauses to ensure invariants are always maintained.
+  </Step>
+  
+  <Step title="Intention-Revealing Methods">
+    `ActualizarDatos()` clearly expresses business intent, not just "SetEmail()".
+  </Step>
+</Steps>
+
+## Aggregates and Aggregate Roots
+
+An **Aggregate** is a cluster of related entities and value objects that are treated as a single unit. The **Aggregate Root** is the entry point.
+
+### Aggregate Example: Reserva
+
+The `Reserva` aggregate manages the consistency of reservation data:
+
+```csharp SGRH.Domain/Entities/Reservas/Reserva.cs (excerpt)
+using SGRH.Domain.Base;
+using SGRH.Domain.Enums;
+using SGRH.Domain.Abstractions.Policies;
+
+public sealed class Reserva : EntityBase
+{
+    public int ReservaId { get; private set; }
+    public int ClienteId { get; private set; }
+    public EstadoReserva EstadoReserva { get; private set; }
+    public DateTime FechaReserva { get; private set; }
+    public DateTime FechaEntrada { get; private set; }
+    public DateTime FechaSalida { get; private set; }
+
+    // Calculated property
+    public decimal CostoTotal =>
+        _habitaciones.Sum(h => h.TarifaAplicada) +
+        _servicios.Sum(s => s.SubTotal);
+
+    // Private collections - cannot be modified directly
+    private readonly List<DetalleReserva> _habitaciones = [];
+    public IReadOnlyCollection<DetalleReserva> Habitaciones => _habitaciones;
+
+    private readonly List<ReservaServicioAdicional> _servicios = [];
+    public IReadOnlyCollection<ReservaServicioAdicional> Servicios => _servicios;
+
+    private Reserva() { }
+
+    public Reserva(int clienteId, DateTime fechaEntrada, DateTime fechaSalida)
+    {
+        Guard.AgainstOutOfRange(clienteId, nameof(clienteId), 0);
+        Guard.AgainstInvalidDateRange(fechaEntrada, fechaSalida,
+                                      nameof(fechaEntrada), nameof(fechaSalida));
+
+        ClienteId = clienteId;
+        FechaEntrada = fechaEntrada;
+        FechaSalida = fechaSalida;
+        EstadoReserva = EstadoReserva.Pendiente;
+        FechaReserva = DateTime.UtcNow;
+    }
+
+    // Business methods that maintain aggregate consistency
+    public void AgregarHabitacion(int habitacionId, IReservaDomainPolicy policy)
+    {
+        Guard.AgainstNull(policy, nameof(policy));
+        EnsureEditable();
+        Guard.AgainstOutOfRange(habitacionId, nameof(habitacionId), 0);
+
+        if (_habitaciones.Any(h => h.HabitacionId == habitacionId))
+            throw new ConflictException(
+                "La habitación ya está incluida en esta reserva.");
+
+        policy.EnsureHabitacionDisponible(
+            habitacionId, FechaEntrada, FechaSalida,
+            ReservaId == 0 ? null : ReservaId);
+
+        policy.EnsureHabitacionNoEnMantenimiento(
+            habitacionId, FechaEntrada, FechaSalida);
+
+        var tarifa = policy.GetTarifaAplicada(habitacionId, FechaEntrada);
+
+        _habitaciones.Add(new DetalleReserva(ReservaId, habitacionId, tarifa));
+
+        if (_servicios.Count > 0)
+            RecalcularSnapshots(policy);
+    }
+
+    public void Confirmar()
+    {
+        if (EstadoReserva != EstadoReserva.Pendiente)
+            throw new BusinessRuleViolationException(
+                $"Solo una reserva Pendiente puede confirmarse. Estado actual: {EstadoReserva}.");
+
+        if (_habitaciones.Count == 0)
+            throw new BusinessRuleViolationException(
+                "No se puede confirmar una reserva sin habitaciones.");
+
+        EstadoReserva = EstadoReserva.Confirmada;
+    }
+
+    protected override object GetKey() => ReservaId;
+}
+```
+
+**Aggregate Characteristics:**
+
+<CardGroup cols={2}>
+  <Card title="Consistency Boundary" icon="shield-halved">
+    All changes to `DetalleReserva` and `ReservaServicioAdicional` go through `Reserva` methods.
+  </Card>
+  
+  <Card title="Transactional Unity" icon="database">
+    The entire aggregate is saved or rolled back as one unit of work.
+  </Card>
+  
+  <Card title="Private Collections" icon="lock">
+    Child entities are exposed as `IReadOnlyCollection` - external code cannot modify them directly.
+  </Card>
+  
+  <Card title="Business Rules" icon="gavel">
+    Methods like `Confirmar()` and `AgregarHabitacion()` enforce complex business invariants.
+  </Card>
+</CardGroup>
+
+### Child Entity: DetalleReserva
+
+Child entities within an aggregate have `internal` constructors:
+
+```csharp SGRH.Domain/Entities/Reservas/DetalleReserva.cs
+using SGRH.Domain.Base;
+using SGRH.Domain.Common;
+
+namespace SGRH.Domain.Entities.Reservas;
+
+public sealed class DetalleReserva : EntityBase
+{
+    public int DetalleReservaId { get; private set; }
+    public int ReservaId { get; private set; }
+    public int HabitacionId { get; private set; }
+    public decimal TarifaAplicada { get; private set; }
+
+    private DetalleReserva() { }
+
+    // Internal constructor - only Reserva can create instances
+    internal DetalleReserva(int reservaId, int habitacionId, decimal tarifaAplicada)
+    {
+        Guard.AgainstOutOfRange(habitacionId, nameof(habitacionId), 0);
+        Guard.AgainstOutOfRange(tarifaAplicada, nameof(tarifaAplicada), 0m);
+
+        ReservaId = reservaId;
+        HabitacionId = habitacionId;
+        TarifaAplicada = tarifaAplicada;
+    }
+
+    internal void ActualizarTarifa(decimal nuevaTarifa)
+    {
+        Guard.AgainstOutOfRange(nuevaTarifa, nameof(nuevaTarifa), 0m);
+        TarifaAplicada = nuevaTarifa;
+    }
+
+    protected override object GetKey() => DetalleReservaId;
+}
+```
+
+<Warning>
+Notice the `internal` constructor - only classes in `SGRH.Domain` can create `DetalleReserva` instances. This enforces that room details can only be added through the `Reserva` aggregate root.
+</Warning>
+
+## Business Rule Enforcement
+
+### Guard Clauses
+
+SGRH uses guard clauses for parameter validation:
+
+```csharp SGRH.Domain/Common/Guard.cs
+using SGRH.Domain.Exceptions;
+
+namespace SGRH.Domain.Common;
+
+public static class Guard
+{
+    public static void AgainstNullOrWhiteSpace(string? value, string name, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ValidationException($"{name} no puede estar vacío.");
+
+        if (value.Length > maxLength)
+            throw new ValidationException($"{name} supera el máximo de {maxLength} caracteres.");
+    }
+
+    public static void AgainstNull(object? value, string name)
+    {
+        if (value is null)
+            throw new ValidationException($"{name} no puede ser null.");
+    }
+
+    public static void AgainstOutOfRange(int value, string name, int minExclusive)
+    {
+        if (value <= minExclusive)
+            throw new ValidationException($"{name} debe ser mayor a {minExclusive}.");
+    }
+
+    public static void AgainstInvalidDateRange(DateTime start, DateTime end,
+                                               string startName, string endName)
+    {
+        if (start >= end)
+            throw new ValidationException($"{startName} debe ser anterior a {endName}.");
+    }
+}
+```
+
+### Domain Exceptions
+
+Business rule violations throw domain-specific exceptions:
+
+```csharp SGRH.Domain/Exceptions/BusinessRuleViolationException.cs
+namespace SGRH.Domain.Exceptions;
+
+public sealed class BusinessRuleViolationException : DomainException
+{
+    public BusinessRuleViolationException(string message)
+        : base("BUSINESS_RULE_VIOLATION", message) { }
+}
+```
+
+**Usage Example:**
+
+```csharp Reserva.cs:52
+private void EnsureEditable()
+{
+    if (EstadoReserva == EstadoReserva.Confirmada)
+        throw new BusinessRuleViolationException(
+            "Una reserva confirmada no puede ser modificada.");
+
+    if (EstadoReserva == EstadoReserva.Cancelada)
+        throw new BusinessRuleViolationException(
+            "Una reserva cancelada no puede ser modificada.");
+
+    if (EstadoReserva == EstadoReserva.Finalizada)
+        throw new BusinessRuleViolationException(
+            "Una reserva finalizada no puede ser modificada.");
+}
+```
+
+## Domain Services
+
+When business logic doesn't naturally fit in a single entity, use **Domain Services**:
+
+```csharp SGRH.Domain/Abstractions/Policies/IReservaDomainPolicy.cs
+namespace SGRH.Domain.Abstractions.Policies;
+
+public interface IReservaDomainPolicy
+{
+    // Get season ID for entry date (nullable if no season)
+    int? GetTemporadaId(DateTime fechaEntrada);
+
+    // Validate room availability for date range
+    void EnsureHabitacionDisponible(
+        int habitacionId, 
+        DateTime fechaEntrada, 
+        DateTime fechaSalida, 
+        int? reservaId);
+
+    // Validate room is NOT in maintenance
+    void EnsureHabitacionNoEnMantenimiento(
+        int habitacionId, 
+        DateTime fechaEntrada, 
+        DateTime fechaSalida);
+
+    // Get applicable rate for room and date
+    decimal GetTarifaAplicada(int habitacionId, DateTime fechaEntrada);
+
+    // Validate service availability for season
+    void EnsureServicioDisponibleEnTemporada(
+        int servicioAdicionalId, 
+        int? temporadaId);
+
+    // Get service unit price for reservation
+    decimal GetPrecioServicioAplicado(
+        int reservaId, 
+        int servicioAdicionalId);
+}
+```
+
+**Usage in Aggregate:**
+
+```csharp Reserva.cs:71
+public void CambiarFechas(
+    DateTime nuevaEntrada,
+    DateTime nuevaSalida,
+    IReservaDomainPolicy policy)
+{
+    Guard.AgainstNull(policy, nameof(policy));
+    EnsureEditable();
+
+    Guard.AgainstInvalidDateRange(nuevaEntrada, nuevaSalida,
+                                  nameof(nuevaEntrada), nameof(nuevaSalida));
+
+    foreach (var detalle in _habitaciones)
+    {
+        policy.EnsureHabitacionDisponible(
+            detalle.HabitacionId, nuevaEntrada, nuevaSalida,
+            ReservaId == 0 ? null : ReservaId);
+
+        policy.EnsureHabitacionNoEnMantenimiento(
+            detalle.HabitacionId, nuevaEntrada, nuevaSalida);
+    }
+
+    var temporadaId = policy.GetTemporadaId(nuevaEntrada);
+    foreach (var servicio in _servicios)
+        policy.EnsureServicioDisponibleEnTemporada(
+            servicio.ServicioAdicionalId, temporadaId);
+
+    FechaEntrada = nuevaEntrada;
+    FechaSalida = nuevaSalida;
+
+    RecalcularSnapshots(policy);
+}
+```
+
+<Note>
+**Why a Domain Service?** 
+
+Checking room availability requires querying other reservations - data that a single `Reserva` entity doesn't have. The domain **defines the interface**, but the implementation lives in the persistence layer where it can access the database.
+</Note>
+
+## State Management with Enums
+
+Domain enums represent business states:
+
+```csharp SGRH.Domain/Enums/EstadoReserva.cs
+namespace SGRH.Domain.Enums;
+
+public enum EstadoReserva
+{
+    Pendiente = 1,
+    Confirmada = 2,
+    Cancelada = 3,
+    Finalizada = 4
+}
+```
+
+```csharp SGRH.Domain/Enums/EstadoHabitacion.cs
+namespace SGRH.Domain.Enums;
+
+public enum EstadoHabitacion
+{
+    Disponible = 1,
+    Ocupada = 2,
+    Mantenimiento = 3,
+    FueraDeServicio = 4
+}
+```
+
+**State Transition Enforcement:**
+
+```csharp Reserva.cs:194
+public void Confirmar()
+{
+    if (EstadoReserva != EstadoReserva.Pendiente)
+        throw new BusinessRuleViolationException(
+            $"Solo una reserva Pendiente puede confirmarse. Estado actual: {EstadoReserva}.");
+
+    if (_habitaciones.Count == 0)
+        throw new BusinessRuleViolationException(
+            "No se puede confirmar una reserva sin habitaciones.");
+
+    EstadoReserva = EstadoReserva.Confirmada;
+}
+
+public void Cancelar()
+{
+    if (EstadoReserva == EstadoReserva.Finalizada)
+        throw new BusinessRuleViolationException(
+            "Una reserva finalizada no puede cancelarse.");
+
+    if (EstadoReserva == EstadoReserva.Cancelada)
+        throw new BusinessRuleViolationException(
+            "La reserva ya está cancelada.");
+
+    EstadoReserva = EstadoReserva.Cancelada;
+}
+```
+
+## Advanced Pattern: Temporal History
+
+The `Habitacion` entity tracks state changes over time:
+
+```csharp SGRH.Domain/Entities/Habitaciones/Habitacion.cs
+using SGRH.Domain.Base;
+using SGRH.Domain.Enums;
+
+public sealed class Habitacion : EntityBase
+{
+    public int HabitacionId { get; private set; }
+    public int CategoriaHabitacionId { get; private set; }
+    public int NumeroHabitacion { get; private set; }
+    public int Piso { get; private set; }
+
+    // Private collection - history cannot be modified directly
+    private readonly List<HabitacionHistorial> _historial = [];
+    public IReadOnlyCollection<HabitacionHistorial> Historial => _historial;
+
+    // Calculated property: returns current record (FechaFin == null)
+    public HabitacionHistorial? EstadoActual
+        => _historial.FirstOrDefault(h => h.FechaFin is null);
+
+    private Habitacion() { }
+
+    public Habitacion(int categoriaHabitacionId, int numeroHabitacion, int piso)
+    {
+        Guard.AgainstOutOfRange(categoriaHabitacionId, nameof(categoriaHabitacionId), 0);
+        Guard.AgainstOutOfRange(numeroHabitacion, nameof(numeroHabitacion), 0);
+        Guard.AgainstOutOfRange(piso, nameof(piso), 0);
+
+        CategoriaHabitacionId = categoriaHabitacionId;
+        NumeroHabitacion = numeroHabitacion;
+        Piso = piso;
+
+        // Create initial history record
+        _historial.Add(new HabitacionHistorial(
+            HabitacionId, 
+            EstadoHabitacion.Disponible, 
+            null));
+    }
+
+    public void CambiarEstado(EstadoHabitacion nuevoEstado, string? motivo = null)
+    {
+        // Verify it's not the same current state
+        if (EstadoActual?.EstadoHabitacion == nuevoEstado)
+            throw new BusinessRuleViolationException(
+                $"La habitación ya se encuentra en estado {nuevoEstado}.");
+
+        // Close the current record
+        EstadoActual?.Cerrar();
+
+        // Create new current record
+        _historial.Add(new HabitacionHistorial(
+            HabitacionId, 
+            nuevoEstado, 
+            motivo));
+    }
+
+    protected override object GetKey() => HabitacionId;
+}
+```
+
+<Tip>
+This pattern maintains a complete audit trail of all room state changes while keeping the current state easily accessible.
+</Tip>
+
+## Repository Pattern
+
+Repositories abstract data access. The domain defines the interface:
+
+```csharp SGRH.Domain/Abstractions/Repositories/IRepository.cs
+namespace SGRH.Domain.Abstractions.Repositories;
+
+public interface IRepository<T, TKey> where T : class
+{
+    Task<T?> GetByIdAsync(TKey id, CancellationToken ct = default);
+    Task<List<T>> GetAllAsync(CancellationToken ct = default);
+    Task AddAsync(T entity, CancellationToken ct = default);
+    void Update(T entity);
+    void Delete(T entity);
+}
+```
+
+```csharp SGRH.Domain/Abstractions/Repositories/IReservaRepository.cs
+namespace SGRH.Domain.Abstractions.Repositories;
+
+public interface IReservaRepository : IRepository<Reserva, int>
+{
+    // Domain-specific queries
+    Task<List<Reserva>> GetReservasPorClienteAsync(
+        int clienteId, 
+        CancellationToken ct = default);
+        
+    Task<List<Reserva>> GetReservasActivasAsync(
+        CancellationToken ct = default);
+}
+```
+
+## DDD Best Practices in SGRH
+
+<Steps>
+  <Step title="Always Valid Entities">
+    Entities enforce invariants in constructors and methods. It's impossible to create an invalid entity.
+    
+    ```csharp
+    // This will throw ValidationException
+    var cliente = new Cliente("", "", "", "invalid-email", "");
+    ```
+  </Step>
+  
+  <Step title="Expressive Domain Model">
+    Method names express business intent:
+    - `Confirmar()` not `SetStatus(EstadoReserva.Confirmada)`
+    - `AgregarHabitacion()` not `AddToHabitacionList()`
+  </Step>
+  
+  <Step title="Encapsulated Collections">
+    Use private backing fields with public `IReadOnlyCollection` properties:
+    
+    ```csharp
+    private readonly List<DetalleReserva> _habitaciones = [];
+    public IReadOnlyCollection<DetalleReserva> Habitaciones => _habitaciones;
+    ```
+  </Step>
+  
+  <Step title="Rich Business Logic">
+    Entities contain behavior, not just data:
+    
+    ```csharp
+    // Rich domain model ✅
+    reserva.Confirmar();
+    
+    // Anemic domain model ❌
+    reserva.EstadoReserva = EstadoReserva.Confirmada;
+    ```
+  </Step>
+</Steps>
+
+## Common DDD Patterns in SGRH
+
+<CardGroup cols={2}>
+  <Card title="Aggregate Root" icon="sitemap">
+    `Reserva` controls access to `DetalleReserva` and `ReservaServicioAdicional`
+  </Card>
+  
+  <Card title="Domain Services" icon="gears">
+    `IReservaDomainPolicy` encapsulates complex cross-entity business rules
+  </Card>
+  
+  <Card title="Repository Pattern" icon="database">
+    `IRepository<T, TKey>` abstracts data persistence
+  </Card>
+  
+  <Card title="Guard Clauses" icon="shield">
+    Static `Guard` class validates preconditions
+  </Card>
+  
+  <Card title="Domain Events" icon="bell">
+    (Planned) Entities can raise events like `ReservaConfirmada`
+  </Card>
+  
+  <Card title="Specification Pattern" icon="filter">
+    (Planned) Complex queries encapsulated in reusable specifications
+  </Card>
+</CardGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Clean Architecture" icon="layer-group" href="/concepts/clean-architecture">
+    See how DDD fits into the overall architecture
+  </Card>
+  
+  <Card title="CQRS Pattern" icon="split" href="/concepts/cqrs-pattern">
+    Learn how commands and queries use domain entities
+  </Card>
+</CardGroup>

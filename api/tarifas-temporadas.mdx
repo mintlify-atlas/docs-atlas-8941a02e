@@ -1,0 +1,676 @@
+---
+title: Tarifas y Temporadas
+description: Pricing and seasonal rate management endpoints
+---
+
+Manage seasonal pricing strategies with dynamic rates based on time periods and room categories.
+
+## Overview
+
+The SGRH system implements flexible pricing through:
+
+- **Temporadas (Seasons)**: Time periods with specific pricing rules
+- **Tarifas (Rates)**: Category-specific prices for each season
+
+This allows the hotel to implement high/low season pricing, special events, holidays, etc.
+
+## Temporada Object
+
+A temporada (season) defines a time period with associated pricing.
+
+### Attributes
+
+<ResponseField name="temporadaId" type="number">
+  Unique identifier for the season
+</ResponseField>
+
+<ResponseField name="nombreTemporada" type="string">
+  Season name (max 50 characters)
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="string">
+  Start date of the season (ISO 8601)
+</ResponseField>
+
+<ResponseField name="fechaFin" type="string">
+  End date of the season (ISO 8601)
+</ResponseField>
+
+## Tarifa Object
+
+A tarifa (rate) defines pricing for a specific room category during a season.
+
+### Attributes
+
+<ResponseField name="tarifaTemporadaId" type="number">
+  Unique identifier for the rate
+</ResponseField>
+
+<ResponseField name="categoriaHabitacionId" type="number">
+  Room category ID
+</ResponseField>
+
+<ResponseField name="temporadaId" type="number">
+  Season ID
+</ResponseField>
+
+<ResponseField name="precio" type="number">
+  Price for this category during this season
+</ResponseField>
+
+## List Temporadas
+
+Retrieve all seasons with their associated rates.
+
+### Endpoint
+
+```http
+GET /api/temporadas
+```
+
+### Query Parameters
+
+<ParamField query="pageNumber" type="number" default="1">
+  Page number for pagination
+</ParamField>
+
+<ParamField query="pageSize" type="number" default="20">
+  Number of items per page
+</ParamField>
+
+<ParamField query="activas" type="boolean">
+  Filter only currently active seasons
+</ParamField>
+
+<ParamField query="fecha" type="string">
+  Filter seasons that include this date
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/temporadas?activas=true" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    "https://api.sgrh.com/api/temporadas?activas=true"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "temporadaId": 1,
+        "nombreTemporada": "Temporada Alta",
+        "fechaInicio": "2024-12-15",
+        "fechaFin": "2025-01-15",
+        "totalTarifas": 3,
+        "activa": true
+      },
+      {
+        "temporadaId": 2,
+        "nombreTemporada": "Temporada Baja",
+        "fechaInicio": "2024-05-01",
+        "fechaFin": "2024-09-30",
+        "totalTarifas": 3,
+        "activa": false
+      }
+    ],
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalCount": 2
+  }
+}
+```
+
+## Get Temporada by ID
+
+Retrieve detailed information about a season including all its rates.
+
+### Endpoint
+
+```http
+GET /api/temporadas/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the season
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/temporadas/1 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/temporadas/{temporadaId}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "temporadaId": 1,
+    "nombreTemporada": "Temporada Alta",
+    "fechaInicio": "2024-12-15",
+    "fechaFin": "2025-01-15",
+    "tarifas": [
+      {
+        "tarifaTemporadaId": 1,
+        "categoriaHabitacionId": 1,
+        "nombreCategoria": "Suite",
+        "precioBase": 250.00,
+        "precio": 350.00
+      },
+      {
+        "tarifaTemporadaId": 2,
+        "categoriaHabitacionId": 2,
+        "nombreCategoria": "Doble",
+        "precioBase": 150.00,
+        "precio": 200.00
+      },
+      {
+        "tarifaTemporadaId": 3,
+        "categoriaHabitacionId": 3,
+        "nombreCategoria": "Individual",
+        "precioBase": 100.00,
+        "precio": 130.00
+      }
+    ]
+  }
+}
+```
+
+## Create Temporada
+
+Create a new season.
+
+### Endpoint
+
+```http
+POST /api/temporadas
+```
+
+### Request Body
+
+<ParamField body="nombreTemporada" type="string" required>
+  Season name (max 50 characters)
+</ParamField>
+
+<ParamField body="fechaInicio" type="string" required>
+  Start date (ISO 8601 format: YYYY-MM-DD)
+</ParamField>
+
+<ParamField body="fechaFin" type="string" required>
+  End date (must be after start date)
+</ParamField>
+
+<Warning>
+Seasons cannot overlap. Ensure the date range doesn't conflict with existing seasons.
+</Warning>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/temporadas \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombreTemporada": "Semana Santa 2024",
+    "fechaInicio": "2024-03-24",
+    "fechaFin": "2024-03-31"
+  }'
+```
+
+```csharp C#
+var nuevaTemporada = new
+{
+    NombreTemporada = "Semana Santa 2024",
+    FechaInicio = "2024-03-24",
+    FechaFin = "2024-03-31"
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(nuevaTemporada),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/temporadas",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "temporadaId": 3,
+    "nombreTemporada": "Semana Santa 2024",
+    "fechaInicio": "2024-03-24",
+    "fechaFin": "2024-03-31"
+  },
+  "message": "Temporada creada exitosamente"
+}
+```
+
+## Update Temporada
+
+Update an existing season's details.
+
+### Endpoint
+
+```http
+PUT /api/temporadas/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the season to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="nombreTemporada" type="string" required>
+  Season name
+</ParamField>
+
+<ParamField body="fechaInicio" type="string" required>
+  Start date
+</ParamField>
+
+<ParamField body="fechaFin" type="string" required>
+  End date
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X PUT https://api.sgrh.com/api/temporadas/3 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombreTemporada": "Semana Santa 2024 (Extendida)",
+    "fechaInicio": "2024-03-23",
+    "fechaFin": "2024-04-01"
+  }'
+```
+
+```csharp C#
+var actualizarTemporada = new
+{
+    NombreTemporada = "Semana Santa 2024 (Extendida)",
+    FechaInicio = "2024-03-23",
+    FechaFin = "2024-04-01"
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(actualizarTemporada),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PutAsync(
+    $"https://api.sgrh.com/api/temporadas/{temporadaId}",
+    content
+);
+```
+</CodeGroup>
+
+## List Tarifas
+
+Retrieve all rates with optional filtering.
+
+### Endpoint
+
+```http
+GET /api/tarifas
+```
+
+### Query Parameters
+
+<ParamField query="pageNumber" type="number" default="1">
+  Page number for pagination
+</ParamField>
+
+<ParamField query="pageSize" type="number" default="20">
+  Number of items per page
+</ParamField>
+
+<ParamField query="temporadaId" type="number">
+  Filter by season ID
+</ParamField>
+
+<ParamField query="categoriaHabitacionId" type="number">
+  Filter by room category ID
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/tarifas?temporadaId=1" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    "https://api.sgrh.com/api/tarifas?temporadaId=1"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "tarifaTemporadaId": 1,
+        "temporadaId": 1,
+        "nombreTemporada": "Temporada Alta",
+        "categoriaHabitacionId": 1,
+        "nombreCategoria": "Suite",
+        "precioBase": 250.00,
+        "precio": 350.00,
+        "incrementoPorcentaje": 40.0
+      }
+    ],
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalCount": 1
+  }
+}
+```
+
+## Get Tarifa by ID
+
+Retrieve a specific rate.
+
+### Endpoint
+
+```http
+GET /api/tarifas/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the rate
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/tarifas/1 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/tarifas/{tarifaId}"
+);
+```
+</CodeGroup>
+
+## Create Tarifa
+
+Create a new rate for a room category in a season.
+
+### Endpoint
+
+```http
+POST /api/tarifas
+```
+
+### Request Body
+
+<ParamField body="categoriaHabitacionId" type="number" required>
+  Room category ID
+</ParamField>
+
+<ParamField body="temporadaId" type="number" required>
+  Season ID
+</ParamField>
+
+<ParamField body="precio" type="number" required>
+  Price for this category during this season (must be greater than 0)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/tarifas \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoriaHabitacionId": 1,
+    "temporadaId": 3,
+    "precio": 320.00
+  }'
+```
+
+```csharp C#
+var nuevaTarifa = new
+{
+    CategoriaHabitacionId = 1,
+    TemporadaId = 3,
+    Precio = 320.00M
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(nuevaTarifa),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/tarifas",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "tarifaTemporadaId": 10,
+    "categoriaHabitacionId": 1,
+    "temporadaId": 3,
+    "precio": 320.00
+  },
+  "message": "Tarifa creada exitosamente"
+}
+```
+
+## Update Tarifa
+
+Update the price of an existing rate.
+
+### Endpoint
+
+```http
+PUT /api/tarifas/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the rate to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="precio" type="number" required>
+  New price (must be greater than 0)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X PUT https://api.sgrh.com/api/tarifas/10 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "precio": 340.00
+  }'
+```
+
+```csharp C#
+var actualizarTarifa = new
+{
+    Precio = 340.00M
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(actualizarTarifa),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PutAsync(
+    $"https://api.sgrh.com/api/tarifas/{tarifaId}",
+    content
+);
+```
+</CodeGroup>
+
+## Get Applicable Rate
+
+Get the applicable rate for a room category on a specific date.
+
+### Endpoint
+
+```http
+GET /api/tarifas/aplicable
+```
+
+### Query Parameters
+
+<ParamField query="categoriaHabitacionId" type="number" required>
+  Room category ID
+</ParamField>
+
+<ParamField query="fecha" type="string" required>
+  Date to check (ISO 8601 format)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/tarifas/aplicable?categoriaHabitacionId=1&fecha=2024-12-25" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var query = "?categoriaHabitacionId=1&fecha=2024-12-25";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/tarifas/aplicable{query}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "categoriaHabitacionId": 1,
+    "nombreCategoria": "Suite",
+    "fecha": "2024-12-25",
+    "temporadaId": 1,
+    "nombreTemporada": "Temporada Alta",
+    "precioBase": 250.00,
+    "precioAplicado": 350.00,
+    "tarifaTemporadaId": 1
+  }
+}
+```
+
+<Note>
+If no season covers the specified date, the `precioBase` (base price) from the room category is returned with `temporadaId` and `tarifaTemporadaId` set to `null`.
+</Note>
+
+## Error Responses
+
+### Overlapping Seasons
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "TEMPORADA_OVERLAP",
+      "message": "El rango de fechas se solapa con la temporada existente: Temporada Alta"
+    }
+  ],
+  "message": "Business rule violation"
+}
+```
+
+### Duplicate Rate
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "DUPLICATE_TARIFA",
+      "message": "Ya existe una tarifa para esta categoría en esta temporada"
+    }
+  ],
+  "message": "Conflict"
+}
+```
+
+### Invalid Date Range
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "INVALID_DATE_RANGE",
+      "message": "La fecha de fin debe ser posterior a la fecha de inicio",
+      "field": "fechaFin"
+    }
+  ],
+  "message": "Validation failed"
+}
+```

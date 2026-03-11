@@ -1,0 +1,323 @@
+---
+title: Authentication
+description: How to authenticate and authorize API requests
+---
+
+The SGRH API uses **JWT (JSON Web Token)** based authentication to secure all endpoints.
+
+## Authentication Flow
+
+1. **Login** - Exchange credentials for a JWT access token
+2. **Use Token** - Include the token in the `Authorization` header for all requests
+3. **Refresh** - Use the refresh token to obtain a new access token when it expires
+
+## Login
+
+Obtain a JWT access token by providing valid credentials.
+
+### Endpoint
+
+```http
+POST /api/auth/login
+```
+
+### Request Body
+
+<ParamField body="username" type="string" required>
+  Username or email of the user
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User password
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin@sgrh.com",
+    "password": "SecurePassword123!"
+  }'
+```
+
+```csharp C#
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+
+var client = new HttpClient();
+var request = new
+{
+    Username = "admin@sgrh.com",
+    Password = "SecurePassword123!"
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(request),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/auth/login",
+    content
+);
+
+var result = await response.Content.ReadAsStringAsync();
+```
+</CodeGroup>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the login was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <ResponseField name="accessToken" type="string">
+    JWT access token to use in subsequent requests
+  </ResponseField>
+  
+  <ResponseField name="refreshToken" type="string">
+    Token used to refresh the access token
+  </ResponseField>
+  
+  <ResponseField name="expiresIn" type="number">
+    Token expiration time in seconds (typically 7200 = 2 hours)
+  </ResponseField>
+  
+  <ResponseField name="tokenType" type="string">
+    Token type, always "Bearer"
+  </ResponseField>
+  
+  <ResponseField name="usuario" type="object">
+    <ResponseField name="usuarioId" type="number">
+      User ID
+    </ResponseField>
+    
+    <ResponseField name="username" type="string">
+      Username
+    </ResponseField>
+    
+    <ResponseField name="email" type="string">
+      User email
+    </ResponseField>
+    
+    <ResponseField name="rol" type="string">
+      User role: `Administrador` or `Recepcionista`
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "expiresIn": 7200,
+    "tokenType": "Bearer",
+    "usuario": {
+      "usuarioId": 1,
+      "username": "admin",
+      "email": "admin@sgrh.com",
+      "rol": "Administrador"
+    }
+  },
+  "message": "Login successful"
+}
+```
+
+## Refresh Token
+
+Refresh an expired access token without requiring the user to log in again.
+
+### Endpoint
+
+```http
+POST /api/auth/refresh
+```
+
+### Request Body
+
+<ParamField body="accessToken" type="string" required>
+  The expired access token
+</ParamField>
+
+<ParamField body="refreshToken" type="string" required>
+  The refresh token received during login
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+  }'
+```
+
+```csharp C#
+var refreshRequest = new
+{
+    AccessToken = expiredToken,
+    RefreshToken = refreshToken
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(refreshRequest),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/auth/refresh",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+Returns the same structure as the login endpoint with a new access token and refresh token.
+
+## Using the Access Token
+
+Include the access token in the `Authorization` header for all authenticated requests:
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Example Authenticated Request
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/clientes \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json"
+```
+
+```csharp C#
+var client = new HttpClient();
+client.DefaultRequestHeaders.Authorization = 
+    new AuthenticationHeaderValue("Bearer", accessToken);
+
+var response = await client.GetAsync(
+    "https://api.sgrh.com/api/clientes"
+);
+```
+</CodeGroup>
+
+## JWT Token Structure
+
+The JWT token contains the following claims:
+
+```json
+{
+  "sub": "1",
+  "username": "admin",
+  "email": "admin@sgrh.com",
+  "rol": "Administrador",
+  "iss": "SGRH-DEV",
+  "aud": "SGRH-DEV",
+  "exp": 1710518400,
+  "iat": 1710511200
+}
+```
+
+## Authorization Roles
+
+The SGRH API implements role-based access control (RBAC) with two roles:
+
+### Administrador
+
+Full access to all endpoints:
+- Manage clients, reservations, rooms, rates, services
+- Generate reports
+- View audit logs
+- Manage users
+
+### Recepcionista
+
+Limited access:
+- Manage clients and reservations
+- View rooms and availability
+- View rates and services (read-only)
+- Generate basic reports
+- Cannot modify rates, create users, or access audit logs
+
+## Security Best Practices
+
+<Warning>
+**Important Security Guidelines**
+
+- **Never** share your access tokens
+- **Always** use HTTPS in production
+- **Store** tokens securely (encrypted storage, never in source code)
+- **Rotate** tokens regularly
+- **Validate** token expiration on the client side
+- **Implement** proper logout (token invalidation)
+</Warning>
+
+## Token Expiration
+
+- **Access Token**: Expires in 2 hours (7200 seconds)
+- **Refresh Token**: Expires in 30 days
+
+When the access token expires, use the refresh token endpoint to obtain a new one. If the refresh token also expires, the user must log in again.
+
+## Error Responses
+
+### Invalid Credentials
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "INVALID_CREDENTIALS",
+      "message": "Invalid username or password"
+    }
+  ],
+  "message": "Authentication failed"
+}
+```
+
+### Invalid Token
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "INVALID_TOKEN",
+      "message": "The provided token is invalid or expired"
+    }
+  ],
+  "message": "Token validation failed"
+}
+```
+
+### Unauthorized Access
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "UNAUTHORIZED",
+      "message": "You do not have permission to access this resource"
+    }
+  ],
+  "message": "Authorization failed"
+}
+```

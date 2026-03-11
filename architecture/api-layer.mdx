@@ -1,0 +1,634 @@
+---
+title: 'API Layer'
+description: 'REST API controllers, routing, and presentation concerns in SGRH'
+---
+
+# API Layer
+
+The API layer (SGRH.Api) provides the **HTTP interface** to the application, exposing REST endpoints that invoke application use cases. Controllers are thin orchestrators that handle HTTP concerns while delegating business logic to the Application layer.
+
+## Project Structure
+
+```
+SGRH.Api/
+├── Controllers/
+│   ├── ReservasController.cs
+│   ├── HabitacionesController.cs
+│   ├── ClientesController.cs
+│   ├── ServiciosAdicionalesController.cs
+│   ├── TarifasTemporadasController.cs
+│   ├── ReportesController.cs
+│   ├── AuditoriaController.cs
+│   └── TestDbController.cs
+├── Program.cs                     # Application entry point
+├── appsettings.json              # Configuration
+└── appsettings.Development.json
+```
+
+## Program.cs Configuration
+
+The application bootstraps services and middleware in `Program.cs`:
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using SGRH.Persistence.Context;
+
+namespace SGRH.Api
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            var builder = WebApplication.CreateBuilder(args);
+
+            // Add services to the container
+            builder.Services.AddControllers();
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen();
+
+            // Database configuration
+            builder.Services.AddDbContext<SGRHDbContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+
+            var app = builder.Build();
+
+            // HTTPS redirection (production only)
+            if (!app.Environment.IsDevelopment())
+            {
+                app.UseHttpsRedirection();
+            }
+
+            // Swagger (development only)
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI();
+            }
+
+            app.UseAuthorization();
+            app.MapControllers();
+
+            app.Run();
+        }
+    }
+}
+```
+
+<Note>
+  The current `Program.cs` shows basic setup. In a complete implementation, this would also call `AddInfrastructure()` and `AddApplication()` extension methods.
+</Note>
+
+## Controller Pattern
+
+### Base Controller Structure
+
+Controllers follow ASP.NET Core conventions with attribute routing:
+
+```csharp
+[ApiController]
+[Route("api/[controller]")]
+public class ReservasController : ControllerBase
+{
+    private readonly IMediator _mediator; // or direct service injection
+    private readonly ILogger<ReservasController> _logger;
+
+    public ReservasController(IMediator mediator, ILogger<ReservasController> logger)
+    {
+        _mediator = mediator;
+        _logger = logger;
+    }
+
+    // Endpoints...
+}
+```
+
+### HTTP Method Mapping
+
+<Tabs>
+  <Tab title="GET - Queries">
+    ```csharp
+    /// <summary>
+    /// Get all reservations with optional filters
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<ReservaListDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<ReservaListDto>>> GetReservas(
+        [FromQuery] ListarReservasQuery query,
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(query, ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Get reservation by ID with full details
+    /// </summary>
+    [HttpGet("{id}")]
+    [ProducesResponseType(typeof(ReservaDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ReservaDto>> GetReservaById(int id, CancellationToken ct)
+    {
+        var query = new ObtenerReservaPorIdQuery { ReservaId = id };
+        var result = await _mediator.Send(query, ct);
+        
+        if (result == null)
+            return NotFound(new { message = $"Reserva {id} no encontrada" });
+        
+        return Ok(result);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="POST - Create">
+    ```csharp
+    /// <summary>
+    /// Create a new reservation
+    /// </summary>
+    [HttpPost]
+    [ProducesResponseType(typeof(ReservaDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ReservaDto>> CrearReserva(
+        [FromBody] CrearReservaCommand command,
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(command, ct);
+        
+        return CreatedAtAction(
+            nameof(GetReservaById),
+            new { id = result.ReservaId },
+            result);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="PUT - Update">
+    ```csharp
+    /// <summary>
+    /// Update an existing reservation
+    /// </summary>
+    [HttpPut("{id}")]
+    [ProducesResponseType(typeof(ReservaDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ReservaDto>> ActualizarReserva(
+        int id,
+        [FromBody] ActualizarReservaCommand command,
+        CancellationToken ct)
+    {
+        if (id != command.ReservaId)
+            return BadRequest(new { message = "ID mismatch" });
+        
+        var result = await _mediator.Send(command, ct);
+        return Ok(result);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="DELETE - Remove">
+    ```csharp
+    /// <summary>
+    /// Cancel a reservation
+    /// </summary>
+    [HttpDelete("{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CancelarReserva(int id, CancellationToken ct)
+    {
+        var command = new CancelarReservaCommand { ReservaId = id };
+        await _mediator.Send(command, ct);
+        
+        return NoContent();
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Controller Endpoints by Feature
+
+### ReservasController
+
+<AccordionGroup>
+  <Accordion title="GET /api/reservas">
+    **List reservations with filters**
+    
+    Query Parameters:
+    - `fechaDesde` (DateTime?): Filter by start date
+    - `fechaHasta` (DateTime?): Filter by end date
+    - `estado` (EstadoReserva?): Filter by status
+    - `clienteId` (int?): Filter by client
+    - `pageNumber` (int): Page number (default: 1)
+    - `pageSize` (int): Items per page (default: 20)
+    
+    **Response:** `PagedResult<ReservaListDto>`
+  </Accordion>
+  
+  <Accordion title="GET /api/reservas/{id}">
+    **Get reservation details**
+    
+    Includes full details: rooms, services, pricing
+    
+    **Response:** `ReservaDto`
+  </Accordion>
+  
+  <Accordion title="POST /api/reservas">
+    **Create new reservation**
+    
+    Request Body:
+    ```json
+    {
+      "clienteId": 1,
+      "fechaEntrada": "2024-12-20",
+      "fechaSalida": "2024-12-25",
+      "habitacionIds": [101, 102]
+    }
+    ```
+    
+    **Response:** `201 Created` with `ReservaDto`
+  </Accordion>
+  
+  <Accordion title="PUT /api/reservas/{id}">
+    **Update reservation**
+    
+    Can modify dates, add/remove rooms and services (only if Pendiente)
+  </Accordion>
+  
+  <Accordion title="POST /api/reservas/{id}/confirmar">
+    **Confirm reservation**
+    
+    Transitions state: Pendiente → Confirmada
+  </Accordion>
+  
+  <Accordion title="POST /api/reservas/{id}/checkin">
+    **Check-in guest**
+    
+    Validates current date matches entry date, changes room states
+  </Accordion>
+  
+  <Accordion title="POST /api/reservas/{id}/checkout">
+    **Check-out guest**
+    
+    Finalizes reservation, frees rooms
+  </Accordion>
+  
+  <Accordion title="DELETE /api/reservas/{id}">
+    **Cancel reservation**
+    
+    Transitions to Cancelada state
+  </Accordion>
+</AccordionGroup>
+
+### HabitacionesController
+
+<AccordionGroup>
+  <Accordion title="GET /api/habitaciones">
+    **List rooms with availability**
+    
+    Query Parameters:
+    - `categoriaId` (int?): Filter by category
+    - `estado` (EstadoHabitacion?): Filter by status
+    - `fechaDesde` (DateTime?): Check availability from
+    - `fechaHasta` (DateTime?): Check availability to
+    
+    **Response:** `List<HabitacionDto>`
+  </Accordion>
+  
+  <Accordion title="GET /api/habitaciones/{id}">
+    **Get room details**
+    
+    Includes current status and history
+  </Accordion>
+  
+  <Accordion title="POST /api/habitaciones">
+    **Create new room**
+    
+    Request Body:
+    ```json
+    {
+      "categoriaHabitacionId": 1,
+      "numeroHabitacion": 101,
+      "piso": 1
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="PUT /api/habitaciones/{id}">
+    **Update room information**
+    
+    Can change category, floor, etc.
+  </Accordion>
+  
+  <Accordion title="PUT /api/habitaciones/{id}/estado">
+    **Change room status**
+    
+    Request Body:
+    ```json
+    {
+      "nuevoEstado": "Mantenimiento",
+      "motivo": "Reparación de aire acondicionado"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### ClientesController
+
+<AccordionGroup>
+  <Accordion title="GET /api/clientes">
+    **List all clients**
+    
+    Supports pagination and search
+  </Accordion>
+  
+  <Accordion title="GET /api/clientes/{id}">
+    **Get client details**
+    
+    Includes contact information and reservation history
+  </Accordion>
+  
+  <Accordion title="POST /api/clientes">
+    **Register new client**
+    
+    Request Body:
+    ```json
+    {
+      "nationalId": "12345678",
+      "nombreCliente": "Juan",
+      "apellidoCliente": "Pérez",
+      "email": "juan.perez@example.com",
+      "telefono": "+1234567890"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="PUT /api/clientes/{id}">
+    **Update client information**
+    
+    Cannot change NationalId (immutable)
+  </Accordion>
+  
+  <Accordion title="DELETE /api/clientes/{id}">
+    **Delete client**
+    
+    Only if no active reservations
+  </Accordion>
+</AccordionGroup>
+
+### ServiciosAdicionalesController
+
+<AccordionGroup>
+  <Accordion title="GET /api/servicios">
+    **List available services**
+    
+    Can filter by season availability
+  </Accordion>
+  
+  <Accordion title="POST /api/servicios">
+    **Create new service**
+    
+    Request Body:
+    ```json
+    {
+      "nombreServicio": "Spa",
+      "tipoServicio": "Wellness"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="PUT /api/servicios/{id}">
+    **Update service**
+  </Accordion>
+  
+  <Accordion title="DELETE /api/servicios/{id}">
+    **Delete service**
+  </Accordion>
+</AccordionGroup>
+
+### TarifasTemporadasController
+
+<AccordionGroup>
+  <Accordion title="GET /api/tarifas">
+    **List rates by season and category**
+  </Accordion>
+  
+  <Accordion title="POST /api/tarifas">
+    **Create new rate**
+    
+    Request Body:
+    ```json
+    {
+      "categoriaHabitacionId": 1,
+      "temporadaId": 2,
+      "precio": 150.00
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="GET /api/temporadas">
+    **List seasons**
+  </Accordion>
+  
+  <Accordion title="POST /api/temporadas">
+    **Create new season**
+    
+    Request Body:
+    ```json
+    {
+      "nombreTemporada": "Verano 2024",
+      "fechaInicio": "2024-06-01",
+      "fechaFin": "2024-08-31"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### ReportesController
+
+<AccordionGroup>
+  <Accordion title="GET /api/reportes/ocupacion">
+    **Occupancy report**
+    
+    Query Parameters:
+    - `fechaInicio` (DateTime)
+    - `fechaFin` (DateTime)
+    
+    Returns occupancy rates by room and period
+  </Accordion>
+  
+  <Accordion title="GET /api/reportes/ingresos">
+    **Revenue report**
+    
+    Breakdown by rooms and services
+  </Accordion>
+  
+  <Accordion title="GET /api/reportes/reservas">
+    **Reservation analytics**
+    
+    Statistics and trends
+  </Accordion>
+</AccordionGroup>
+
+### AuditoriaController
+
+<AccordionGroup>
+  <Accordion title="GET /api/auditoria">
+    **Query audit logs**
+    
+    Query Parameters:
+    - `entidad` (string): Entity type
+    - `accion` (string): Action performed
+    - `usuarioId` (int?): User filter
+    - `fechaDesde` (DateTime?)
+    - `fechaHasta` (DateTime?)
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+### Global Exception Handler
+
+```csharp
+public class ExceptionHandlerMiddleware
+{
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        try
+        {
+            await next(context);
+        }
+        catch (NotFoundException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+        }
+        catch (ValidationException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+        }
+        catch (BusinessRuleViolationException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+        }
+        catch (ConflictException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await context.Response.WriteAsJsonAsync(new { error = "Internal server error" });
+        }
+    }
+}
+```
+
+### HTTP Status Code Mapping
+
+| Domain Exception | HTTP Status | Usage |
+|-----------------|-------------|-------|
+| `NotFoundException` | 404 Not Found | Entity doesn't exist |
+| `ValidationException` | 400 Bad Request | Invalid input data |
+| `BusinessRuleViolationException` | 422 Unprocessable Entity | Business rule violation |
+| `ConflictException` | 409 Conflict | Duplicate or conflicting state |
+| Generic Exception | 500 Internal Server Error | Unexpected errors |
+
+## Swagger/OpenAPI Configuration
+
+```csharp
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "SGRH API",
+        Version = "v1",
+        Description = "Sistema de Gestión de Reservas Hoteleras",
+        Contact = new OpenApiContact
+        {
+            Name = "SGRH Team",
+            Email = "support@sgrh.com"
+        }
+    });
+
+    // Include XML comments
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    options.IncludeXmlComments(xmlPath);
+
+    // Add JWT authentication
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+});
+```
+
+## CORS Configuration
+
+```csharp
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", builder =>
+    {
+        builder.WithOrigins("http://localhost:3000", "https://sgrh.com")
+               .AllowAnyMethod()
+               .AllowAnyHeader()
+               .AllowCredentials();
+    });
+});
+
+// In middleware pipeline
+app.UseCors("AllowFrontend");
+```
+
+## Authentication & Authorization
+
+```csharp
+[Authorize(Roles = "Admin")]
+[HttpPost]
+public async Task<IActionResult> CrearHabitacion([FromBody] CrearHabitacionCommand cmd)
+{
+    // Only admins can create rooms
+}
+
+[Authorize]
+[HttpGet("mis-reservas")]
+public async Task<IActionResult> GetMisReservas()
+{
+    var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    // Return reservations for current user
+}
+```
+
+## Key Design Decisions
+
+<CardGroup cols={2}>
+  <Card title="Thin Controllers" icon="weight-hanging">
+    Controllers only handle HTTP concerns, delegate to Application layer
+  </Card>
+  <Card title="RESTful Conventions" icon="route">
+    Standard HTTP verbs and status codes for predictable API
+  </Card>
+  <Card title="Centralized Error Handling" icon="triangle-exclamation">
+    Middleware translates domain exceptions to HTTP responses
+  </Card>
+  <Card title="API Versioning Ready" icon="code-branch">
+    Route structure supports versioning (/api/v1/...)
+  </Card>
+</CardGroup>
+
+## Related Documentation
+
+<CardGroup cols={3}>
+  <Card title="Application Layer" href="/architecture/application-layer" icon="gears">
+    See commands and queries invoked by controllers
+  </Card>
+  <Card title="Domain Layer" href="/architecture/domain-layer" icon="cube">
+    Understand entities and exceptions
+  </Card>
+  <Card title="Infrastructure" href="/architecture/infrastructure-layer" icon="server">
+    Learn about DI configuration
+  </Card>
+</CardGroup>

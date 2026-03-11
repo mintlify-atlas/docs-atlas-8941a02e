@@ -1,0 +1,344 @@
+---
+title: ServicioAdicional Entity
+description: Additional services with seasonal availability
+---
+
+The `ServicioAdicional` entity represents optional services that guests can add to their reservations, such as spa treatments, tours, meals, or amenities. Services can be configured to be available only during specific seasons.
+
+## Overview
+
+`ServicioAdicional` manages service definitions and their seasonal availability. Services maintain a list of seasons in which they are offered, enabling flexible service availability based on demand, weather, or operational capacity.
+
+**Namespace:** `SGRH.Domain.Entities.Servicios`
+
+**Source:** `~/workspace/source/SGRH.Domain/Entities/Servicios/ServicioAdicional.cs`
+
+## Properties
+
+<ResponseField name="ServicioAdicionalId" type="int" required>
+  Unique identifier for the additional service (primary key).
+</ResponseField>
+
+<ResponseField name="NombreServicio" type="string" required>
+  Name of the service (e.g., "Spa Treatment", "Airport Transfer"). Maximum length: 50 characters.
+</ResponseField>
+
+<ResponseField name="TipoServicio" type="string" required>
+  Service category or type (e.g., "Wellness", "Transportation", "Dining"). Maximum length: 50 characters.
+</ResponseField>
+
+<ResponseField name="TemporadaIds" type="IReadOnlyCollection<int>" required>
+  Read-only collection of season IDs where this service is available. Empty collection means available year-round.
+</ResponseField>
+
+## Constructor
+
+```csharp
+public ServicioAdicional(string nombreServicio, string tipoServicio)
+```
+
+Creates a new additional service.
+
+### Parameters
+
+- **nombreServicio**: Service name (max 50 chars, required)
+- **tipoServicio**: Service type/category (max 50 chars, required)
+
+### Validations
+
+- Both parameters validated with `Guard.AgainstNullOrWhiteSpace`
+- Maximum length enforced (50 characters each)
+
+### Initial State
+
+- Empty `TemporadaIds` collection (available year-round by default)
+
+### Example
+
+```csharp
+var spaService = new ServicioAdicional(
+    nombreServicio: "Masaje Relajante",
+    tipoServicio: "Spa"
+);
+```
+
+## Methods
+
+### HabilitarEnTemporada
+
+```csharp
+public void HabilitarEnTemporada(int temporadaId)
+```
+
+Enables the service for a specific season.
+
+**Parameters:**
+- **temporadaId**: Valid season ID (must be > 0)
+
+**Validations:**
+- Season ID must be greater than 0
+- Cannot add duplicate season (throws `ConflictException`)
+
+**Example:**
+
+```csharp
+// Enable winter sports package only in winter season
+var winterSports = new ServicioAdicional("Ski Pass", "Deportes");
+winterSports.HabilitarEnTemporada(temporadaId: 3); // Winter season
+```
+
+### DeshabilitarEnTemporada
+
+```csharp
+public void DeshabilitarEnTemporada(int temporadaId)
+```
+
+Removes the service from a specific season.
+
+**Parameters:**
+- **temporadaId**: Season ID to remove
+
+**Validations:**
+- Season must exist in collection (throws `NotFoundException` if not found)
+
+**Example:**
+
+```csharp
+// Remove service from low season
+servicio.DeshabilitarEnTemporada(temporadaId: 1);
+```
+
+### EstaDisponibleEn
+
+```csharp
+public bool EstaDisponibleEn(int? temporadaId)
+```
+
+Checks if the service is available during a given season.
+
+**Parameters:**
+- **temporadaId**: Season ID to check (nullable)
+
+**Logic:**
+- If `temporadaId` is `null`, returns `true` (no season = always available)
+- If season list is empty, returns `true` (available year-round)
+- Otherwise, returns whether the season is in the collection
+
+**Example:**
+
+```csharp
+if (servicio.EstaDisponibleEn(temporadaId: 2))
+{
+    // Service can be added to reservation
+}
+```
+
+### Actualizar
+
+```csharp
+public void Actualizar(string nombreServicio, string tipoServicio)
+```
+
+Updates service information.
+
+**Parameters:**
+- **nombreServicio**: Updated service name (max 50 chars)
+- **tipoServicio**: Updated service type (max 50 chars)
+
+**Example:**
+
+```csharp
+servicio.Actualizar(
+    nombreServicio: "Masaje Terapéutico Premium",
+    tipoServicio: "Spa Premium"
+);
+```
+
+## Seasonal Availability Patterns
+
+### Year-Round Services
+
+Services with empty `TemporadaIds` are available in all seasons:
+
+```csharp
+var breakfastService = new ServicioAdicional("Desayuno Continental", "Alimentos");
+// No seasons added - available year-round
+```
+
+### Seasonal Services
+
+Services restricted to specific seasons:
+
+```csharp
+var poolBar = new ServicioAdicional("Bar de Piscina", "Bebidas");
+poolBar.HabilitarEnTemporada(temporadaId: 2); // High season only
+poolBar.HabilitarEnTemporada(temporadaId: 4); // Holiday season
+```
+
+### Seasonal Transitions
+
+```csharp
+var outdoorDining = new ServicioAdicional("Cena al Aire Libre", "Alimentos");
+
+// Enable for summer
+outdoorDining.HabilitarEnTemporada(summerSeasonId);
+
+// Later, extend to spring
+outdoorDining.HabilitarEnTemporada(springSeasonId);
+
+// Remove from winter due to weather
+outdoorDining.DeshabilitarEnTemporada(winterSeasonId);
+```
+
+## Usage in Reservations
+
+### Adding Services to Reservations
+
+When adding a service to a reservation:
+
+```csharp
+// From Reserva.AgregarServicio()
+var temporadaId = policy.GetTemporadaId(FechaEntrada);
+policy.EnsureServicioDisponibleEnTemporada(servicioAdicionalId, temporadaId);
+```
+
+The policy validates availability:
+
+```csharp
+// Policy implementation
+var servicio = await _repository.GetServicioById(servicioAdicionalId);
+
+if (!servicio.EstaDisponibleEn(temporadaId))
+    throw new BusinessRuleViolationException(
+        $"El servicio {servicio.NombreServicio} no está disponible en esta temporada.");
+```
+
+### Service Pricing
+
+Services are priced through `ServicioCategoriaPrecio` entity:
+
+```csharp
+public sealed class ServicioCategoriaPrecio
+{
+    public int ServicioCategoriaPrecioId { get; private set; }
+    public int ServicioAdicionalId { get; private set; }
+    public int CategoriaHabitacionId { get; private set; }
+    public decimal Precio { get; private set; }
+}
+```
+
+**Pricing Rule**: Service price varies by room category (higher categories = higher service prices).
+
+### Price Determination
+
+From reservation policy:
+
+```csharp
+// Get MAX price across all room categories in the reservation
+decimal GetPrecioServicioAplicado(int reservaId, int servicioAdicionalId)
+{
+    var categorias = GetCategoriasInReserva(reservaId);
+    var precios = GetPreciosByCategoria(servicioAdicionalId, categorias);
+    return precios.Max();
+}
+```
+
+## Business Rules
+
+<Accordion title="Seasonal Validation">
+  - Services are validated against season availability when added to reservations
+  - If a reservation's dates change to a different season, service availability is re-validated
+  - Services with no season restrictions are always available
+  - Empty `TemporadaIds` = available in all seasons
+</Accordion>
+
+<Accordion title="Duplicate Prevention">
+  - Cannot add the same season twice to a service (throws `ConflictException`)
+  - Ensures data integrity and prevents confusion
+</Accordion>
+
+<Accordion title="Removal Validation">
+  - Cannot remove a season that isn't in the collection (throws `NotFoundException`)
+  - Ensures operations are meaningful and prevent silent failures
+</Accordion>
+
+<Accordion title="Service Prerequisites">
+  From Reserva entity:
+  - Services can only be added to reservations with at least one room
+  - Ensures proper pricing calculation based on room categories
+</Accordion>
+
+## Common Scenarios
+
+<Accordion title="Creating Seasonal Service">
+  **Scenario**: Beach activities only in summer
+  
+  ```csharp
+  var beachService = new ServicioAdicional(
+      "Alquiler de Kayak",
+      "Deportes Acuáticos"
+  );
+  
+  beachService.HabilitarEnTemporada(summerSeasonId);
+  beachService.HabilitarEnTemporada(springSeasonId);
+  ```
+</Accordion>
+
+<Accordion title="Year-Round Service with Pricing">
+  **Scenario**: Breakfast available year-round, priced by room category
+  
+  ```csharp
+  var breakfast = new ServicioAdicional("Desayuno Buffet", "Alimentos");
+  // No seasons added - available always
+  
+  // Pricing by category
+  var precioStandard = new ServicioCategoriaPrecio(
+      breakfast.ServicioAdicionalId,
+      standardCategoryId,
+      precio: 15.00m
+  );
+  
+  var precioSuite = new ServicioCategoriaPrecio(
+      breakfast.ServicioAdicionalId,
+      suiteCategoryId,
+      precio: 25.00m
+  );
+  ```
+</Accordion>
+
+<Accordion title="Service Migration Between Seasons">
+  **Scenario**: Move outdoor service indoors for winter
+  
+  ```csharp
+  var outdoorYoga = await repository.GetServicio(yogaServiceId);
+  outdoorYoga.DeshabilitarEnTemporada(winterSeasonId);
+  
+  var indoorYoga = new ServicioAdicional("Yoga en Gimnasio", "Bienestar");
+  indoorYoga.HabilitarEnTemporada(winterSeasonId);
+  ```
+</Accordion>
+
+## Service Types Examples
+
+| Service Name | Tipo Servicio | Seasonal? |
+|--------------|---------------|----------|
+| Desayuno Buffet | Alimentos | No (Year-round) |
+| Cena Romántica | Alimentos | No |
+| Masaje | Spa | No |
+| Tour de Playa | Excursiones | Yes (Summer only) |
+| Ski Pass | Deportes | Yes (Winter only) |
+| Transfer Aeropuerto | Transporte | No |
+| Bar de Piscina | Bebidas | Yes (High season) |
+| Cena al Aire Libre | Alimentos | Yes (Spring/Summer) |
+
+## Related Entities
+
+- **ReservaServicioAdicional**: Links services to reservations with quantity and pricing
+- **ServicioCategoriaPrecio**: Defines service pricing by room category
+- **Temporada**: Defines seasonal periods
+
+## Related Documentation
+
+- [Reserva](/domain/reserva) - Service management in reservations
+- [Reservation Policies](/domain/reservation-policies) - Service validation rules
+- [Validation Guards](/domain/validation-guards) - Validation mechanisms

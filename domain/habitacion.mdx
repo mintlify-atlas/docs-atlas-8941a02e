@@ -1,0 +1,324 @@
+---
+title: Habitacion Entity
+description: Room entity with state tracking and maintenance history
+---
+
+The `Habitacion` entity represents a hotel room with state management capabilities. It maintains a complete history of state changes through the `HabitacionHistorial` pattern, enabling tracking of availability, occupancy, maintenance, and cleaning states.
+
+## Overview
+
+`Habitacion` is a sealed entity that manages room information and maintains an immutable history of state transitions. The current state is determined by the latest open history record.
+
+**Namespace:** `SGRH.Domain.Entities.Habitaciones`
+
+**Source:** `~/workspace/source/SGRH.Domain/Entities/Habitaciones/Habitacion.cs`
+
+## Properties
+
+<ResponseField name="HabitacionId" type="int" required>
+  Unique identifier for the room (primary key).
+</ResponseField>
+
+<ResponseField name="CategoriaHabitacionId" type="int" required>
+  Reference to the room category (determines capacity, pricing, amenities).
+</ResponseField>
+
+<ResponseField name="NumeroHabitacion" type="int" required>
+  Room number (must be > 0).
+</ResponseField>
+
+<ResponseField name="Piso" type="int" required>
+  Floor number where the room is located (must be > 0).
+</ResponseField>
+
+<ResponseField name="Historial" type="IReadOnlyCollection<HabitacionHistorial>" required>
+  Read-only collection of all state change records. Modifications only through `CambiarEstado()`.
+</ResponseField>
+
+<ResponseField name="EstadoActual" type="HabitacionHistorial?" computed>
+  **Calculated property**: Returns the current active state record (where `FechaFin` is null).
+  
+  ```csharp
+  EstadoActual => _historial.FirstOrDefault(h => h.FechaFin is null)
+  ```
+</ResponseField>
+
+## Constructor
+
+```csharp
+public Habitacion(int categoriaHabitacionId, int numeroHabitacion, int piso)
+```
+
+Creates a new room with initial `Disponible` state.
+
+### Parameters
+
+- **categoriaHabitacionId**: Valid category ID (must be > 0)
+- **numeroHabitacion**: Room number (must be > 0)
+- **piso**: Floor number (must be > 0)
+
+### Initial State
+
+Automatically creates a history record with:
+- `EstadoHabitacion` = `Disponible`
+- `FechaInicio` = `DateTime.UtcNow`
+- `FechaFin` = `null` (open/active)
+- `MotivoCambio` = `null`
+
+### Example
+
+```csharp
+var habitacion = new Habitacion(
+    categoriaHabitacionId: 3, // Suite
+    numeroHabitacion: 301,
+    piso: 3
+);
+```
+
+## Room States
+
+### EstadoHabitacion Enum
+
+```csharp
+public enum EstadoHabitacion
+{
+    Disponible,      // Available for reservation
+    Ocupada,         // Currently occupied
+    Mantenimiento,   // Under maintenance
+    Limpieza         // Being cleaned
+}
+```
+
+### State Transition Rules
+
+<Accordion title="Disponible">
+  **Available for Reservation**
+  
+  - Room is ready for guests
+  - Can be reserved
+  - No motivo required
+  - Cannot have a motivo specified
+</Accordion>
+
+<Accordion title="Ocupada">
+  **Currently Occupied**
+  
+  - Guest is checked in
+  - Cannot be reserved (except by current reservation)
+  - No motivo required
+  - Cannot have a motivo specified
+</Accordion>
+
+<Accordion title="Mantenimiento">
+  **Under Maintenance**
+  
+  - Room needs repairs or upgrades
+  - Cannot be reserved
+  - **Motivo REQUIRED**: Must specify reason for maintenance
+  - Prevents reservations during maintenance period
+</Accordion>
+
+<Accordion title="Limpieza">
+  **Being Cleaned**
+  
+  - Room is being prepared
+  - Cannot be reserved
+  - **Motivo REQUIRED**: Must specify cleaning reason/type
+  - Temporary state before returning to Disponible
+</Accordion>
+
+## Methods
+
+### CambiarEstado
+
+```csharp
+public void CambiarEstado(EstadoHabitacion nuevoEstado, string? motivo = null)
+```
+
+Changes the room state with proper history tracking.
+
+**Process:**
+1. Validates the new state is different from current
+2. Closes the current history record (`FechaFin = DateTime.UtcNow`)
+3. Creates a new open history record with the new state
+
+**Parameters:**
+- **nuevoEstado**: Target state
+- **motivo**: Required for `Mantenimiento` and `Limpieza`, forbidden for others
+
+**Examples:**
+
+<CodeGroup>
+```csharp Available to Maintenance
+habitacion.CambiarEstado(
+    EstadoHabitacion.Mantenimiento,
+    "Reparación de aire acondicionado"
+);
+```
+
+```csharp Maintenance to Cleaning
+habitacion.CambiarEstado(
+    EstadoHabitacion.Limpieza,
+    "Limpieza profunda post-mantenimiento"
+);
+```
+
+```csharp Cleaning to Available
+habitacion.CambiarEstado(
+    EstadoHabitacion.Disponible
+    // No motivo - will throw if provided
+);
+```
+
+```csharp Available to Occupied
+habitacion.CambiarEstado(
+    EstadoHabitacion.Ocupada
+    // No motivo required
+);
+```
+</CodeGroup>
+
+**Throws:**
+- `BusinessRuleViolationException` if already in the target state
+- `ValidationException` if motivo rules are violated (see HabitacionHistorial)
+
+### CambiarCategoria
+
+```csharp
+public void CambiarCategoria(int nuevaCategoriaId)
+```
+
+Updates the room category (e.g., upgrade from Standard to Suite).
+
+**Parameters:**
+- **nuevaCategoriaId**: Valid category ID (must be > 0)
+
+**Example:**
+
+```csharp
+habitacion.CambiarCategoria(nuevaCategoriaId: 5); // Upgrade to Deluxe
+```
+
+<Note>
+  Category changes affect future pricing but do not modify existing reservations.
+</Note>
+
+## HabitacionHistorial
+
+Each state change creates a history record:
+
+```csharp
+public sealed class HabitacionHistorial
+{
+    public int HabitacionHistorialId { get; private set; }
+    public int HabitacionId { get; private set; }
+    public EstadoHabitacion EstadoHabitacion { get; private set; }
+    public DateTime FechaInicio { get; private set; }
+    public DateTime? FechaFin { get; private set; }
+    public string? MotivoCambio { get; private set; }
+}
+```
+
+### History Record Lifecycle
+
+1. **Created**: `FechaInicio = DateTime.UtcNow`, `FechaFin = null` (open)
+2. **Active**: The current state (only one record has `FechaFin = null`)
+3. **Closed**: When state changes, `FechaFin = DateTime.UtcNow`
+
+### Motivo Validation Rules
+
+Implemented in `HabitacionHistorial` constructor:
+
+```csharp
+if (estado is EstadoHabitacion.Mantenimiento or EstadoHabitacion.Limpieza)
+{
+    if (string.IsNullOrWhiteSpace(motivo))
+        throw new ValidationException(
+            $"El estado {estado} requiere un motivo de cambio.");
+}
+else
+{
+    if (!string.IsNullOrWhiteSpace(motivo))
+        throw new ValidationException(
+            $"El estado {estado} no debe tener motivo de cambio.");
+}
+```
+
+**Maximum length:** 255 characters
+
+## Business Rules
+
+<Accordion title="State Change Validation">
+  - Cannot transition to the same state (throws `BusinessRuleViolationException`)
+  - Each state change must follow motivo rules
+  - All state changes are tracked with timestamps
+  - Current state is always the record with `FechaFin = null`
+</Accordion>
+
+<Accordion title="History Immutability">
+  - History cannot be modified directly from outside the entity
+  - Only `CambiarEstado()` can add history records
+  - Closed records cannot be reopened (enforced by `HabitacionHistorial.Cerrar()`)
+</Accordion>
+
+<Accordion title="Maintenance Blocking">
+  Rooms in `Mantenimiento` state cannot be reserved. The reservation policy (`IReservaDomainPolicy.EnsureHabitacionNoEnMantenimiento`) validates this at the application layer.
+</Accordion>
+
+## Usage Patterns
+
+### Checking Current State
+
+```csharp
+var estado = habitacion.EstadoActual?.EstadoHabitacion;
+
+if (estado == EstadoHabitacion.Disponible)
+{
+    // Room can be reserved
+}
+```
+
+### State History Audit
+
+```csharp
+foreach (var historial in habitacion.Historial.OrderByDescending(h => h.FechaInicio))
+{
+    Console.WriteLine($"{historial.EstadoHabitacion}: {historial.FechaInicio} - {historial.FechaFin}");
+    if (!string.IsNullOrEmpty(historial.MotivoCambio))
+        Console.WriteLine($"  Motivo: {historial.MotivoCambio}");
+}
+```
+
+### Typical Workflow
+
+```csharp
+// 1. Guest checks in
+habitacion.CambiarEstado(EstadoHabitacion.Ocupada);
+
+// 2. Guest checks out, cleaning needed
+habitacion.CambiarEstado(EstadoHabitacion.Limpieza, "Limpieza estándar");
+
+// 3. Cleaning complete
+habitacion.CambiarEstado(EstadoHabitacion.Disponible);
+
+// 4. Maintenance issue found
+habitacion.CambiarEstado(EstadoHabitacion.Mantenimiento, "Tubería con fuga");
+
+// 5. Maintenance complete, needs cleaning
+habitacion.CambiarEstado(EstadoHabitacion.Limpieza, "Limpieza post-reparación");
+
+// 6. Ready for next guest
+habitacion.CambiarEstado(EstadoHabitacion.Disponible);
+```
+
+## Related Entities
+
+- **CategoriaHabitacion**: Defines room type, capacity, and base pricing
+- **TarifaTemporada**: Pricing per category per season (see [TarifaTemporada](/domain/tarifa-temporada))
+- **Reserva**: References rooms through `DetalleReserva` (see [Reserva](/domain/reserva))
+
+## Related Documentation
+
+- [TarifaTemporada](/domain/tarifa-temporada) - Room pricing by season
+- [Reserva](/domain/reserva) - Reservation management
+- [Validation Guards](/domain/validation-guards) - Validation mechanisms

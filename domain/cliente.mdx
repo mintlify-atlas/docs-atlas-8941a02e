@@ -1,0 +1,147 @@
+---
+title: Cliente Entity
+description: Customer entity with personal information and validation
+---
+
+The `Cliente` entity represents a customer in the SGRH system. It stores essential personal information and enforces validation rules to ensure data integrity.
+
+## Overview
+
+`Cliente` is a sealed entity that inherits from `EntityBase`. It maintains customer details including national identification, name, contact information, and provides methods for updating customer data with proper validation.
+
+**Namespace:** `SGRH.Domain.Entities.Clientes`
+
+**Source:** `~/workspace/source/SGRH.Domain/Entities/Clientes/Cliente.cs`
+
+## Properties
+
+<ResponseField name="ClienteId" type="int" required>
+  Unique identifier for the customer (primary key).
+</ResponseField>
+
+<ResponseField name="NationalId" type="string" required>
+  National identification number (e.g., cedula). Maximum length: 20 characters.
+</ResponseField>
+
+<ResponseField name="NombreCliente" type="string" required>
+  Customer's first name. Maximum length: 100 characters.
+</ResponseField>
+
+<ResponseField name="ApellidoCliente" type="string" required>
+  Customer's last name. Maximum length: 100 characters.
+</ResponseField>
+
+<ResponseField name="Email" type="string" required>
+  Customer's email address. Maximum length: 100 characters.
+</ResponseField>
+
+<ResponseField name="Telefono" type="string" required>
+  Customer's phone number. Maximum length: 20 characters.
+</ResponseField>
+
+## Constructor
+
+```csharp
+public Cliente(
+    string nationalId,
+    string nombreCliente,
+    string apellidoCliente,
+    string email,
+    string telefono)
+```
+
+Creates a new customer instance with full validation.
+
+### Parameters
+
+- **nationalId**: National ID (max 20 chars, required)
+- **nombreCliente**: First name (max 100 chars, required)
+- **apellidoCliente**: Last name (max 100 chars, required)
+- **email**: Email address (max 100 chars, required)
+- **telefono**: Phone number (max 20 chars, required)
+
+### Validations
+
+All parameters are validated using `Guard.AgainstNullOrWhiteSpace` to ensure:
+- Values are not null or empty
+- Values do not exceed maximum length constraints
+
+### Example
+
+```csharp
+var cliente = new Cliente(
+    nationalId: "001-1234567-8",
+    nombreCliente: "Juan",
+    apellidoCliente: "Pérez",
+    email: "juan.perez@example.com",
+    telefono: "809-555-1234"
+);
+```
+
+## Methods
+
+### ActualizarDatos
+
+```csharp
+public void ActualizarDatos(
+    string nombreCliente,
+    string apellidoCliente,
+    string email,
+    string telefono)
+```
+
+Updates customer information with validation.
+
+<Note>
+  **Note:** The `NationalId` cannot be changed after creation. Only name, email, and phone can be updated.
+</Note>
+
+#### Parameters
+
+- **nombreCliente**: Updated first name (max 100 chars)
+- **apellidoCliente**: Updated last name (max 100 chars)
+- **email**: Updated email address (max 100 chars)
+- **telefono**: Updated phone number (max 20 chars)
+
+#### Example
+
+```csharp
+cliente.ActualizarDatos(
+    nombreCliente: "Juan Carlos",
+    apellidoCliente: "Pérez García",
+    email: "juanc.perez@example.com",
+    telefono: "809-555-5678"
+);
+```
+
+## Business Rules
+
+<Accordion title="Validation Rules">
+  All string properties are validated to ensure:
+  
+  1. **Non-empty values**: No null or whitespace-only strings
+  2. **Maximum length enforcement**: Each field has specific length constraints
+  3. **Immutable National ID**: The national ID cannot be changed after creation
+  
+  Violations throw `ValidationException` with descriptive error messages.
+</Accordion>
+
+<Accordion title="Identity">
+  The entity uses `ClienteId` as its primary key, implemented via the `GetKey()` method from `EntityBase`.
+</Accordion>
+
+## Usage in Application
+
+The `Cliente` entity is typically used in:
+
+- **Reservation System**: Linked to reservations via `ClienteId`
+- **Customer Management**: CRUD operations for customer records
+- **Reporting**: Customer analytics and history
+
+## Related Entities
+
+- **Reserva**: References `Cliente` through `ClienteId` (see [Reserva](/domain/reserva))
+
+## Validation Guards
+
+For detailed information about validation mechanisms, see [Validation Guards](/domain/validation-guards).

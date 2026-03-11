@@ -1,0 +1,503 @@
+---
+title: Authentication Configuration
+description: Configure JWT-based authentication and authorization in SGRH
+---
+
+## Overview
+
+SGRH uses **JWT (JSON Web Tokens)** for stateless authentication. The system implements token-based authentication with refresh token support, allowing secure user login and session management.
+
+## JWT Configuration
+
+<Steps>
+  <Step title="Configure JWT Settings">
+    Add JWT configuration to your `appsettings.json`:
+
+    ```json appsettings.json
+    {
+      "Jwt": {
+        "Issuer": "SGRH-DEV",
+        "Audience": "SGRH-DEV",
+        "Key": "CLAVE_DEV_LARGA_Y_SEGURA",
+        "ExpireMinutes": 120
+      }
+    }
+    ```
+
+    <ParamField path="Issuer" type="string" required>
+      The issuer of the JWT token. Typically your application name or domain.
+      
+      **Example**: `SGRH-Production`, `https://api.sgrh.com`
+    </ParamField>
+
+    <ParamField path="Audience" type="string" required>
+      The intended audience for the token. Should match your client application.
+      
+      **Example**: `SGRH-Web`, `SGRH-Mobile`
+    </ParamField>
+
+    <ParamField path="Key" type="string" required>
+      Secret key for signing JWT tokens. **Must be at least 256 bits (32 characters) for HS256.**
+      
+      <Warning>
+        Use a cryptographically secure random string in production. Never commit this to source control!
+      </Warning>
+    </ParamField>
+
+    <ParamField path="ExpireMinutes" type="integer" default="120">
+      Token expiration time in minutes. Common values:
+      - Development: 120 minutes (2 hours)
+      - Production: 15-60 minutes
+    </ParamField>
+  </Step>
+
+  <Step title="Install JWT Bearer Package">
+    The SGRH.Api project already includes the required package:
+
+    ```xml SGRH.Api.csproj
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    ```
+
+    If not installed, add it via:
+
+    ```bash
+    dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer --version 8.0.0
+    ```
+  </Step>
+
+  <Step title="Register Authentication Services">
+    Configure JWT authentication in `Program.cs`:
+
+    ```csharp Program.cs
+    using Microsoft.AspNetCore.Authentication.JwtBearer;
+    using Microsoft.IdentityModel.Tokens;
+    using System.Text;
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Get JWT configuration
+    var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+    var jwtAudience = builder.Configuration["Jwt:Audience"];
+    var jwtKey = builder.Configuration["Jwt:Key"];
+
+    // Add Authentication
+    builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey ?? throw new InvalidOperationException("JWT Key not configured"))
+            ),
+            ClockSkew = TimeSpan.Zero // Remove default 5 minute tolerance
+        };
+    });
+
+    // Add Authorization
+    builder.Services.AddAuthorization();
+    ```
+  </Step>
+
+  <Step title="Configure Middleware Pipeline">
+    Add authentication and authorization middleware in the correct order:
+
+    ```csharp Program.cs
+    var app = builder.Build();
+
+    // Middleware pipeline
+    app.UseHttpsRedirection();
+
+    app.UseAuthentication();  // Must come before UseAuthorization
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    app.Run();
+    ```
+
+    <Warning>
+      **Order matters!** `UseAuthentication()` must be called before `UseAuthorization()`.
+    </Warning>
+  </Step>
+</Steps>
+
+## Token Generation
+
+Create a service to generate JWT tokens:
+
+```csharp JwtTokenService.cs
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+
+public class JwtTokenService
+{
+    private readonly IConfiguration _configuration;
+
+    public JwtTokenService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    public string GenerateToken(Usuario usuario)
+    {
+        var jwtKey = _configuration["Jwt:Key"];
+        var jwtIssuer = _configuration["Jwt:Issuer"];
+        var jwtAudience = _configuration["Jwt:Audience"];
+        var expireMinutes = int.Parse(_configuration["Jwt:ExpireMinutes"] ?? "120");
+
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+        var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, usuario.Email),
+            new Claim("username", usuario.NombreUsuario),
+            new Claim(ClaimTypes.Role, usuario.Rol),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: jwtIssuer,
+            audience: jwtAudience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddMinutes(expireMinutes),
+            signingCredentials: credentials
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+}
+```
+
+Register the service:
+
+```csharp Program.cs
+builder.Services.AddScoped<JwtTokenService>();
+```
+
+## Login Implementation
+
+Example login endpoint:
+
+```csharp AuthController.cs
+using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
+{
+    private readonly IUsuarioRepository _usuarioRepository;
+    private readonly JwtTokenService _tokenService;
+
+    public AuthController(
+        IUsuarioRepository usuarioRepository,
+        JwtTokenService tokenService)
+    {
+        _usuarioRepository = usuarioRepository;
+        _tokenService = tokenService;
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    {
+        // Validate credentials
+        var usuario = await _usuarioRepository.GetByUsernameAsync(request.Username);
+        
+        if (usuario == null || !VerifyPassword(request.Password, usuario.PasswordHash))
+        {
+            return Unauthorized(new { message = "Invalid credentials" });
+        }
+
+        // Generate token
+        var token = _tokenService.GenerateToken(usuario);
+
+        return Ok(new LoginResponse
+        {
+            Token = token,
+            ExpiresIn = int.Parse(_configuration["Jwt:ExpireMinutes"] ?? "120") * 60, // seconds
+            Usuario = new UsuarioDto
+            {
+                Id = usuario.Id,
+                Username = usuario.NombreUsuario,
+                Email = usuario.Email,
+                Rol = usuario.Rol
+            }
+        });
+    }
+
+    private bool VerifyPassword(string password, string hash)
+    {
+        // Implement password verification (e.g., BCrypt)
+        return BCrypt.Net.BCrypt.Verify(password, hash);
+    }
+}
+```
+
+## Protecting Endpoints
+
+Use the `[Authorize]` attribute to protect endpoints:
+
+```csharp ReservasController.cs
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize] // Requires valid JWT token
+public class ReservasController : ControllerBase
+{
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+        // Only authenticated users can access
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        // ...
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Admin,Manager")] // Role-based authorization
+    public async Task<IActionResult> Create([FromBody] CreateReservaRequest request)
+    {
+        // Only Admin or Manager can create
+        // ...
+    }
+
+    [HttpGet("public")]
+    [AllowAnonymous] // Allow public access
+    public IActionResult GetPublicInfo()
+    {
+        // Anyone can access
+        return Ok(new { message = "Public information" });
+    }
+}
+```
+
+## Accessing User Claims
+
+Retrieve authenticated user information from claims:
+
+```csharp
+public class BaseController : ControllerBase
+{
+    protected int GetCurrentUserId()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.Parse(userIdClaim ?? "0");
+    }
+
+    protected string GetCurrentUsername()
+    {
+        return User.FindFirst("username")?.Value ?? string.Empty;
+    }
+
+    protected string GetCurrentUserRole()
+    {
+        return User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+    }
+
+    protected bool IsInRole(string role)
+    {
+        return User.IsInRole(role);
+    }
+}
+```
+
+## Refresh Token Implementation
+
+For enhanced security, implement refresh tokens:
+
+<CodeGroup>
+```csharp RefreshTokenService.cs
+public class RefreshTokenService
+{
+    private readonly IConfiguration _configuration;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
+
+    public async Task<RefreshToken> GenerateRefreshTokenAsync(int usuarioId)
+    {
+        var refreshToken = new RefreshToken
+        {
+            Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _refreshTokenRepository.AddAsync(refreshToken);
+        return refreshToken;
+    }
+
+    public async Task<bool> ValidateRefreshTokenAsync(string token)
+    {
+        var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token);
+        
+        return refreshToken != null 
+            && !refreshToken.IsRevoked 
+            && refreshToken.ExpiresAt > DateTime.UtcNow;
+    }
+}
+```
+
+```csharp AuthController.cs
+[HttpPost("refresh")]
+public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+{
+    if (!await _refreshTokenService.ValidateRefreshTokenAsync(request.RefreshToken))
+    {
+        return Unauthorized(new { message = "Invalid refresh token" });
+    }
+
+    var usuario = await _usuarioRepository.GetByRefreshTokenAsync(request.RefreshToken);
+    var newAccessToken = _tokenService.GenerateToken(usuario);
+    var newRefreshToken = await _refreshTokenService.GenerateRefreshTokenAsync(usuario.Id);
+
+    return Ok(new TokenResponse
+    {
+        AccessToken = newAccessToken,
+        RefreshToken = newRefreshToken.Token
+    });
+}
+```
+</CodeGroup>
+
+## Environment-Specific Settings
+
+<Tabs>
+  <Tab title="Development">
+    ```json appsettings.Development.json
+    {
+      "Jwt": {
+        "Issuer": "SGRH-DEV",
+        "Audience": "SGRH-DEV",
+        "Key": "CLAVE_DEV_LARGA_Y_SEGURA_32CHARS_MIN",
+        "ExpireMinutes": 120
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Production">
+    Use environment variables:
+
+    ```bash
+    export Jwt__Issuer="https://api.sgrh.com"
+    export Jwt__Audience="https://app.sgrh.com"
+    export Jwt__Key="<secure-random-key-from-key-vault>"
+    export Jwt__ExpireMinutes="60"
+    ```
+
+    Or Azure App Service settings:
+    - `Jwt:Key` → Store in Azure Key Vault
+    - `Jwt:Issuer` → `https://api.sgrh.com`
+    - `Jwt:ExpireMinutes` → `30`
+  </Tab>
+</Tabs>
+
+<Warning>
+  **Production Security Checklist:**
+  - Use a cryptographically secure random key (minimum 256 bits)
+  - Store JWT secret in Azure Key Vault or environment variables
+  - Use HTTPS in production
+  - Set shorter token expiration (15-60 minutes)
+  - Implement refresh tokens
+  - Add rate limiting on login endpoints
+  - Log authentication failures
+</Warning>
+
+## CORS Configuration
+
+If your frontend is on a different domain, configure CORS:
+
+```csharp Program.cs
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("https://app.sgrh.com")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
+// ...
+
+app.UseCors("AllowFrontend");
+app.UseAuthentication();
+app.UseAuthorization();
+```
+
+## Testing Authentication
+
+<Steps>
+  <Step title="Get Token">
+    ```bash
+    curl -X POST https://localhost:5001/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"username":"admin","password":"password123"}'
+    ```
+
+    Response:
+    ```json
+    {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "expiresIn": 7200,
+      "usuario": {
+        "id": 1,
+        "username": "admin",
+        "email": "admin@sgrh.com",
+        "rol": "Admin"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Use Token">
+    ```bash
+    curl https://localhost:5001/api/reservas \
+      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### 401 Unauthorized
+
+- Verify token is included in `Authorization: Bearer <token>` header
+- Check token hasn't expired
+- Ensure `UseAuthentication()` is called before `UseAuthorization()`
+
+### 403 Forbidden
+
+- User is authenticated but doesn't have required role/permissions
+- Check `[Authorize(Roles = "...")]` configuration
+
+### Invalid Signature
+
+- JWT secret key mismatch between token generation and validation
+- Verify `Jwt:Key` is identical in all environments
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Setup" icon="database" href="/configuration/database">
+    Configure SQL Server and Entity Framework Core
+  </Card>
+  <Card title="AWS Services" icon="aws" href="/configuration/aws-services">
+    Integrate S3 storage and SES email services
+  </Card>
+</CardGroup>

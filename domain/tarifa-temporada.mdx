@@ -1,0 +1,284 @@
+---
+title: TarifaTemporada Entity
+description: Seasonal pricing for room categories
+---
+
+The `TarifaTemporada` entity defines pricing for room categories during specific seasons. It enables dynamic pricing strategies based on demand, holidays, and seasonal variations.
+
+## Overview
+
+`TarifaTemporada` associates a room category with a season and a specific price point. This allows flexible pricing where the same room category can have different rates during high season, low season, holidays, etc.
+
+**Namespace:** `SGRH.Domain.Entities.Habitaciones`
+
+**Source:** `~/workspace/source/SGRH.Domain/Entities/Habitaciones/TarifaTemporada.cs`
+
+## Properties
+
+<ResponseField name="TarifaTemporadaId" type="int" required>
+  Unique identifier for the seasonal rate (primary key).
+</ResponseField>
+
+<ResponseField name="CategoriaHabitacionId" type="int" required>
+  Reference to the room category (e.g., Standard, Deluxe, Suite).
+</ResponseField>
+
+<ResponseField name="TemporadaId" type="int" required>
+  Reference to the season (e.g., High Season, Low Season, Holidays).
+</ResponseField>
+
+<ResponseField name="Precio" type="decimal" required>
+  Price per night for this category during this season. Must be > 0.
+</ResponseField>
+
+## Constructor
+
+```csharp
+public TarifaTemporada(int categoriaHabitacionId, int temporadaId, decimal precio)
+```
+
+Creates a new seasonal rate.
+
+### Parameters
+
+- **categoriaHabitacionId**: Valid room category ID (must be > 0)
+- **temporadaId**: Valid season ID (must be > 0)
+- **precio**: Price per night (must be > 0)
+
+### Validations
+
+- All IDs must be greater than 0 (`Guard.AgainstOutOfRange`)
+- Price must be greater than 0
+
+### Example
+
+```csharp
+var tarifaAltaTemporada = new TarifaTemporada(
+    categoriaHabitacionId: 1,  // Standard room
+    temporadaId: 2,            // High Season
+    precio: 150.00m            // $150/night
+);
+```
+
+## Methods
+
+### ActualizarPrecio
+
+```csharp
+public void ActualizarPrecio(decimal nuevoPrecio)
+```
+
+Updates the seasonal rate.
+
+**Parameters:**
+- **nuevoPrecio**: New price (must be > 0)
+
+**Validation:**
+- Price must be greater than 0
+
+**Example:**
+
+```csharp
+tarifaAltaTemporada.ActualizarPrecio(175.00m); // Price increase
+```
+
+<Note>
+  Price updates only affect future reservations. Existing reservations maintain their captured price snapshots.
+</Note>
+
+## Pricing Strategy
+
+### Multi-dimensional Pricing
+
+`TarifaTemporada` enables flexible pricing based on two dimensions:
+
+1. **Room Category**: Different room types (Standard, Deluxe, Suite)
+2. **Season**: Different time periods (High, Low, Holidays)
+
+### Example Pricing Matrix
+
+| Category | Low Season | High Season | Holidays |
+|----------|-----------|-------------|----------|
+| Standard | $100      | $150        | $200     |
+| Deluxe   | $150      | $225        | $300     |
+| Suite    | $250      | $375        | $500     |
+
+### Implementation
+
+```csharp
+// Low Season - Standard
+new TarifaTemporada(categoriaId: 1, temporadaId: 1, precio: 100m);
+
+// High Season - Standard  
+new TarifaTemporada(categoriaId: 1, temporadaId: 2, precio: 150m);
+
+// Holidays - Standard
+new TarifaTemporada(categoriaId: 1, temporadaId: 3, precio: 200m);
+
+// ... repeat for other categories
+```
+
+## Usage in Reservations
+
+### Price Determination
+
+When a reservation is created or dates are changed:
+
+1. System determines the season based on check-in date
+2. Retrieves `TarifaTemporada` for each room's category + season
+3. Captures price as snapshot in `DetalleReserva.TarifaAplicada`
+
+### Policy Integration
+
+The `IReservaDomainPolicy.GetTarifaAplicada()` method:
+
+```csharp
+decimal GetTarifaAplicada(int habitacionId, DateTime fechaEntrada);
+```
+
+Implementation flow:
+1. Get room's `CategoriaHabitacionId`
+2. Determine `TemporadaId` from `fechaEntrada`
+3. Query `TarifaTemporada` by category + season
+4. Return `Precio`
+
+### Snapshot Pattern
+
+Prices are captured at reservation time:
+
+```csharp
+// When adding a room to a reservation
+var tarifa = policy.GetTarifaAplicada(habitacionId, FechaEntrada);
+_habitaciones.Add(new DetalleReserva(ReservaId, habitacionId, tarifa));
+```
+
+This ensures:
+- Reservations aren't affected by future price changes
+- Historical accuracy for reporting
+- Price consistency for guests
+
+## Business Rules
+
+<Accordion title="Price Validation">
+  - Prices must always be greater than zero
+  - Negative or zero prices are rejected with `ValidationException`
+  - Ensures revenue integrity
+</Accordion>
+
+<Accordion title="Unique Constraints">
+  While not enforced at the entity level, the database ensures:
+  
+  - One price per category per season (unique constraint)
+  - Prevents pricing conflicts
+  - Enforced by EF Core configuration
+</Accordion>
+
+<Accordion title="Fallback Pricing">
+  If no `TarifaTemporada` exists for a category/season combination:
+  
+  - System can fall back to `CategoriaHabitacion.PrecioBase`
+  - Implementation depends on application layer policy
+  - Prevents reservation failures due to missing rates
+</Accordion>
+
+## Common Scenarios
+
+<Accordion title="Seasonal Rate Adjustment">
+  **Scenario**: Increase high season rates by 10%
+  
+  ```csharp
+  var tarifasAltaTemporada = await repository
+      .GetTarifasPorTemporada(temporadaId: 2);
+  
+  foreach (var tarifa in tarifasAltaTemporada)
+  {
+      var nuevoPrecio = tarifa.Precio * 1.10m;
+      tarifa.ActualizarPrecio(nuevoPrecio);
+  }
+  
+  await repository.SaveChangesAsync();
+  ```
+</Accordion>
+
+<Accordion title="New Season Setup">
+  **Scenario**: Create rates for a new Holiday season
+  
+  ```csharp
+  var categorias = await repository.GetAllCategorias();
+  var holidaySeasonId = 4;
+  
+  foreach (var categoria in categorias)
+  {
+      // 50% premium over high season
+      var precioBase = categoria.PrecioBase;
+      var precioHoliday = precioBase * 1.50m;
+      
+      var tarifa = new TarifaTemporada(
+          categoria.CategoriaHabitacionId,
+          holidaySeasonId,
+          precioHoliday
+      );
+      
+      await repository.AddAsync(tarifa);
+  }
+  ```
+</Accordion>
+
+<Accordion title="Price Comparison">
+  **Scenario**: Show guest price differences by date
+  
+  ```csharp
+  var categoria = await repository.GetCategoria(categoriaId);
+  var temporadas = await repository.GetTemporadasActivas();
+  
+  foreach (var temporada in temporadas)
+  {
+      var tarifa = await repository.GetTarifaTemporada(
+          categoria.CategoriaHabitacionId,
+          temporada.TemporadaId
+      );
+      
+      Console.WriteLine($"{temporada.NombreTemporada}: ${tarifa.Precio}/night");
+  }
+  ```
+</Accordion>
+
+## Related Entities
+
+### CategoriaHabitacion
+
+Defines the room category:
+
+```csharp
+public sealed class CategoriaHabitacion
+{
+    public int CategoriaHabitacionId { get; private set; }
+    public string NombreCategoria { get; private set; } // "Standard", "Deluxe", etc.
+    public int Capacidad { get; private set; }
+    public string Descripcion { get; private set; }
+    public decimal PrecioBase { get; private set; } // Fallback price
+}
+```
+
+### Temporada
+
+Defines the season period:
+
+```csharp
+public sealed class Temporada
+{
+    public int TemporadaId { get; private set; }
+    public string NombreTemporada { get; private set; } // "Alta Temporada"
+    public DateTime FechaInicio { get; private set; }
+    public DateTime FechaFin { get; private set; }
+}
+```
+
+See related documentation for Temporada entity details.
+
+## Related Documentation
+
+- [Habitacion](/domain/habitacion) - Room entity
+- [Reserva](/domain/reserva) - Reservation with price snapshots
+- [Reservation Policies](/domain/reservation-policies) - Price determination logic
+- [Validation Guards](/domain/validation-guards) - Validation mechanisms

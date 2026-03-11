@@ -1,0 +1,676 @@
+---
+title: AWS Services Configuration
+description: Configure Amazon S3 for file storage and SES for email delivery in SGRH
+---
+
+## Overview
+
+SGRH integrates with two key AWS services:
+
+- **Amazon S3** - Object storage for files, images, and documents
+- **Amazon SES** - Email delivery service for transactional emails
+
+Both services are configured through the `SGRH.Infrastructure` project using the AWS SDK for .NET.
+
+## AWS SDK Installation
+
+The required AWS packages are already included in `SGRH.Infrastructure.csproj`:
+
+```xml SGRH.Infrastructure.csproj
+<PackageReference Include="AWSSDK.S3" Version="4.0.18.6" />
+<PackageReference Include="AWSSDK.SimpleEmail" Version="4.0.2.13" />
+```
+
+If you need to add them manually:
+
+```bash
+dotnet add package AWSSDK.S3 --version 4.0.18.6
+dotnet add package AWSSDK.SimpleEmail --version 4.0.2.13
+```
+
+## AWS Configuration
+
+<Steps>
+  <Step title="Configure AWS Settings">
+    Add AWS configuration to `appsettings.json`:
+
+    ```json appsettings.json
+    {
+      "AWS": {
+        "Region": "us-east-1",
+        "S3": {
+          "BucketName": "tu-bucket-sgrh"
+        },
+        "SES": {
+          "SenderEmail": "no-reply@tudominio.com"
+        }
+      }
+    }
+    ```
+
+    <ParamField path="Region" type="string" required>
+      AWS region where your resources are located.
+      
+      **Common regions:**
+      - `us-east-1` - US East (N. Virginia)
+      - `us-west-2` - US West (Oregon)
+      - `eu-west-1` - Europe (Ireland)
+      - `sa-east-1` - South America (São Paulo)
+    </ParamField>
+
+    <ParamField path="S3.BucketName" type="string" required>
+      Name of your S3 bucket for storing files. Must be globally unique.
+      
+      **Example:** `sgrh-prod-storage`, `sgrh-dev-files`
+    </ParamField>
+
+    <ParamField path="SES.SenderEmail" type="string" required>
+      Verified sender email address for outgoing emails.
+      
+      **Important:** Email must be verified in AWS SES console.
+    </ParamField>
+  </Step>
+
+  <Step title="Configure AWS Credentials">
+    AWS credentials can be configured in multiple ways:
+
+    <Tabs>
+      <Tab title="IAM Role (Recommended for AWS)">
+        When running on AWS (EC2, ECS, Lambda), attach an IAM role with appropriate permissions:
+
+        **Required S3 Permissions:**
+        ```json
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                "arn:aws:s3:::tu-bucket-sgrh",
+                "arn:aws:s3:::tu-bucket-sgrh/*"
+              ]
+            }
+          ]
+        }
+        ```
+
+        **Required SES Permissions:**
+        ```json
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ses:SendEmail",
+                "ses:SendRawEmail"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+        ```
+      </Tab>
+
+      <Tab title="Environment Variables">
+        Set AWS credentials via environment variables:
+
+        ```bash
+        export AWS_ACCESS_KEY_ID="your-access-key"
+        export AWS_SECRET_ACCESS_KEY="your-secret-key"
+        export AWS_REGION="us-east-1"
+        ```
+
+        <Warning>
+          Never commit credentials to source control. Use secure secrets management.
+        </Warning>
+      </Tab>
+
+      <Tab title="AWS Profile">
+        Configure credentials in `~/.aws/credentials`:
+
+        ```ini ~/.aws/credentials
+        [default]
+        aws_access_key_id = your-access-key
+        aws_secret_access_key = your-secret-key
+        ```
+
+        ```ini ~/.aws/config
+        [default]
+        region = us-east-1
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+---
+
+## Amazon S3 Configuration
+
+### S3 Options Model
+
+Define configuration options for S3:
+
+```csharp SGRH.Infrastructure/StorageS3/Models/S3Options.cs
+namespace SGRH.Infrastructure.StorageS3.Models;
+
+public class S3Options
+{
+    public const string SectionName = "AWS:S3";
+    
+    public string BucketName { get; set; } = string.Empty;
+    public string Region { get; set; } = "us-east-1";
+}
+```
+
+### S3 Storage Service Implementation
+
+Implement the `IFileStorage` interface:
+
+```csharp SGRH.Infrastructure/StorageS3/S3StorageService.cs
+using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.Extensions.Options;
+using SGRH.Domain.Abstractions.Storage;
+using SGRH.Infrastructure.StorageS3.Models;
+
+namespace SGRH.Infrastructure.StorageS3;
+
+public class S3StorageService : IFileStorage
+{
+    private readonly IAmazonS3 _s3Client;
+    private readonly S3Options _options;
+
+    public S3StorageService(IAmazonS3 s3Client, IOptions<S3Options> options)
+    {
+        _s3Client = s3Client;
+        _options = options.Value;
+    }
+
+    public async Task<FileUploadResult> UploadAsync(
+        FileUploadRequest request, 
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var putRequest = new PutObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = request.Path.FullPath,
+                InputStream = request.Stream,
+                ContentType = request.ContentType,
+                Metadata =
+                {
+                    ["OriginalFileName"] = request.FileName
+                }
+            };
+
+            var response = await _s3Client.PutObjectAsync(putRequest, ct);
+
+            return new FileUploadResult
+            {
+                Success = response.HttpStatusCode == System.Net.HttpStatusCode.OK,
+                Path = request.Path,
+                Url = GetPublicUrl(request.Path)
+            };
+        }
+        catch (AmazonS3Exception ex)
+        {
+            return new FileUploadResult
+            {
+                Success = false,
+                ErrorMessage = $"S3 Error: {ex.Message}"
+            };
+        }
+    }
+
+    public async Task<FileDownloadResult> DownloadAsync(
+        StoragePath path, 
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new GetObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = path.FullPath
+            };
+
+            var response = await _s3Client.GetObjectAsync(request, ct);
+
+            return new FileDownloadResult
+            {
+                Success = true,
+                Stream = response.ResponseStream,
+                ContentType = response.Headers.ContentType
+            };
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new FileDownloadResult
+            {
+                Success = false,
+                ErrorMessage = "File not found"
+            };
+        }
+    }
+
+    public async Task<bool> DeleteAsync(
+        StoragePath path, 
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new DeleteObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = path.FullPath
+            };
+
+            await _s3Client.DeleteObjectAsync(request, ct);
+            return true;
+        }
+        catch (AmazonS3Exception)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> ExistsAsync(
+        StoragePath path, 
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new GetObjectMetadataRequest
+            {
+                BucketName = _options.BucketName,
+                Key = path.FullPath
+            };
+
+            await _s3Client.GetObjectMetadataAsync(request, ct);
+            return true;
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    private string GetPublicUrl(StoragePath path)
+    {
+        return $"https://{_options.BucketName}.s3.{_options.Region}.amazonaws.com/{path.FullPath}";
+    }
+}
+```
+
+See the interface definition at [SGRH.Domain/Abstractions/Storage/IFileStorage.cs:9](~/workspace/source/SGRH.Domain/Abstractions/Storage/IFileStorage.cs)
+
+### Register S3 Service
+
+Update the dependency injection configuration:
+
+```csharp SGRH.Infrastructure/DependencyInjection/DependencyInjection.cs
+using Amazon.S3;
+using SGRH.Infrastructure.StorageS3;
+using SGRH.Infrastructure.StorageS3.Models;
+
+public static IServiceCollection AddInfrastructure(
+    this IServiceCollection services, 
+    IConfiguration config)
+{
+    // ... existing DbContext and repository registration ...
+
+    // Configure S3
+    services.Configure<S3Options>(config.GetSection(S3Options.SectionName));
+    services.AddAWSService<IAmazonS3>();
+    services.AddScoped<IFileStorage, S3StorageService>();
+
+    return services;
+}
+```
+
+### Using S3 Storage
+
+Inject and use `IFileStorage` in your services:
+
+```csharp HabitacionService.cs
+public class HabitacionService
+{
+    private readonly IFileStorage _storage;
+
+    public HabitacionService(IFileStorage storage)
+    {
+        _storage = storage;
+    }
+
+    public async Task<string> UploadImageAsync(IFormFile file)
+    {
+        var fileName = $"habitaciones/{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+        var path = new StoragePath(fileName);
+
+        using var stream = file.OpenReadStream();
+        var request = new FileUploadRequest
+        {
+            Path = path,
+            Stream = stream,
+            ContentType = file.ContentType,
+            FileName = file.FileName
+        };
+
+        var result = await _storage.UploadAsync(request);
+
+        if (!result.Success)
+        {
+            throw new Exception($"Upload failed: {result.ErrorMessage}");
+        }
+
+        return result.Url;
+    }
+}
+```
+
+---
+
+## Amazon SES Configuration
+
+### Verify Email Address
+
+<Steps>
+  <Step title="Verify Sender Email">
+    Before sending emails, verify your sender address in AWS SES:
+
+    1. Go to AWS SES Console → Email Addresses
+    2. Click "Verify a New Email Address"
+    3. Enter `no-reply@tudominio.com`
+    4. Check your email and click verification link
+  </Step>
+
+  <Step title="Request Production Access (Optional)">
+    By default, SES is in **sandbox mode** (can only send to verified addresses).
+
+    For production:
+    1. Go to AWS SES Console → Sending Statistics
+    2. Click "Request Production Access"
+    3. Fill out the request form
+    4. Wait for AWS approval (usually 24 hours)
+  </Step>
+</Steps>
+
+### SES Options Model
+
+```csharp SGRH.Infrastructure/EmailSES/Models/SesOptions.cs
+namespace SGRH.Infrastructure.EmailSES.Models;
+
+public class SesOptions
+{
+    public const string SectionName = "AWS:SES";
+    
+    public string SenderEmail { get; set; } = string.Empty;
+    public string SenderName { get; set; } = "SGRH Notifications";
+    public string Region { get; set; } = "us-east-1";
+}
+```
+
+### SES Email Service Implementation
+
+```csharp SGRH.Infrastructure/EmailSES/SesEmailService.cs
+using Amazon.SimpleEmail;
+using Amazon.SimpleEmail.Model;
+using Microsoft.Extensions.Options;
+using SGRH.Domain.Abstractions.Email;
+using SGRH.Infrastructure.EmailSES.Models;
+
+namespace SGRH.Infrastructure.EmailSES;
+
+public class SesEmailService : IEmailSender
+{
+    private readonly IAmazonSimpleEmailService _sesClient;
+    private readonly SesOptions _options;
+
+    public SesEmailService(
+        IAmazonSimpleEmailService sesClient, 
+        IOptions<SesOptions> options)
+    {
+        _sesClient = sesClient;
+        _options = options.Value;
+    }
+
+    public async Task<EmailSendResult> SendAsync(
+        EmailMessage message, 
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var sendRequest = new SendEmailRequest
+            {
+                Source = $"{_options.SenderName} <{_options.SenderEmail}>",
+                Destination = new Destination
+                {
+                    ToAddresses = message.To.Select(r => r.Email).ToList(),
+                    CcAddresses = message.Cc.Select(r => r.Email).ToList(),
+                    BccAddresses = message.Bcc.Select(r => r.Email).ToList()
+                },
+                Message = new Message
+                {
+                    Subject = new Content(message.Subject),
+                    Body = new Body
+                    {
+                        Html = new Content
+                        {
+                            Charset = "UTF-8",
+                            Data = message.HtmlBody
+                        },
+                        Text = new Content
+                        {
+                            Charset = "UTF-8",
+                            Data = message.TextBody ?? StripHtml(message.HtmlBody)
+                        }
+                    }
+                }
+            };
+
+            if (message.ReplyTo.Any())
+            {
+                sendRequest.ReplyToAddresses = message.ReplyTo.Select(r => r.Email).ToList();
+            }
+
+            var response = await _sesClient.SendEmailAsync(sendRequest, ct);
+
+            return new EmailSendResult
+            {
+                Success = true,
+                MessageId = response.MessageId
+            };
+        }
+        catch (AmazonSimpleEmailServiceException ex)
+        {
+            return new EmailSendResult
+            {
+                Success = false,
+                ErrorMessage = $"SES Error: {ex.Message}"
+            };
+        }
+    }
+
+    private string StripHtml(string html)
+    {
+        return System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", string.Empty);
+    }
+}
+```
+
+See the interface definition at [SGRH.Domain/Abstractions/Email/IEmailSender.cs:9](~/workspace/source/SGRH.Domain/Abstractions/Email/IEmailSender.cs)
+
+### Register SES Service
+
+```csharp SGRH.Infrastructure/DependencyInjection/DependencyInjection.cs
+using Amazon.SimpleEmail;
+using SGRH.Infrastructure.EmailSES;
+using SGRH.Infrastructure.EmailSES.Models;
+
+public static IServiceCollection AddInfrastructure(
+    this IServiceCollection services, 
+    IConfiguration config)
+{
+    // ... existing registrations ...
+
+    // Configure SES
+    services.Configure<SesOptions>(config.GetSection(SesOptions.SectionName));
+    services.AddAWSService<IAmazonSimpleEmailService>();
+    services.AddScoped<IEmailSender, SesEmailService>();
+
+    return services;
+}
+```
+
+### Using SES Email Service
+
+```csharp ReservaService.cs
+public class ReservaService
+{
+    private readonly IEmailSender _emailSender;
+
+    public ReservaService(IEmailSender emailSender)
+    {
+        _emailSender = emailSender;
+    }
+
+    public async Task SendConfirmacionReservaAsync(Reserva reserva)
+    {
+        var message = new EmailMessage
+        {
+            To = new[] { new EmailRecipient 
+            { 
+                Email = reserva.Cliente.Email, 
+                Name = reserva.Cliente.NombreCompleto 
+            }},
+            Subject = $"Confirmación de Reserva #{reserva.Id}",
+            HtmlBody = $@"
+                <h1>Reserva Confirmada</h1>
+                <p>Estimado/a {reserva.Cliente.NombreCompleto},</p>
+                <p>Su reserva ha sido confirmada con los siguientes detalles:</p>
+                <ul>
+                    <li><strong>Código:</strong> {reserva.CodigoReserva}</li>
+                    <li><strong>Check-in:</strong> {reserva.FechaCheckIn:dd/MM/yyyy}</li>
+                    <li><strong>Check-out:</strong> {reserva.FechaCheckOut:dd/MM/yyyy}</li>
+                </ul>
+                <p>¡Esperamos recibirle pronto!</p>
+            "
+        };
+
+        var result = await _emailSender.SendAsync(message);
+
+        if (!result.Success)
+        {
+            throw new Exception($"Failed to send email: {result.ErrorMessage}");
+        }
+    }
+}
+```
+
+---
+
+## Environment-Specific Configuration
+
+<Tabs>
+  <Tab title="Development">
+    ```json appsettings.Development.json
+    {
+      "AWS": {
+        "Region": "us-east-1",
+        "S3": {
+          "BucketName": "sgrh-dev-storage"
+        },
+        "SES": {
+          "SenderEmail": "dev@localhost.com"
+        }
+      }
+    }
+    ```
+
+    <Note>
+      For local development, consider using [LocalStack](https://localstack.cloud/) to emulate AWS services.
+    </Note>
+  </Tab>
+
+  <Tab title="Production">
+    ```bash
+    export AWS__Region="us-east-1"
+    export AWS__S3__BucketName="sgrh-prod-storage"
+    export AWS__SES__SenderEmail="no-reply@sgrh.com"
+    ```
+
+    Or Azure App Service configuration:
+    - `AWS:Region` → `us-east-1`
+    - `AWS:S3:BucketName` → `sgrh-prod-storage`
+    - `AWS:SES:SenderEmail` → `no-reply@sgrh.com`
+  </Tab>
+</Tabs>
+
+## Testing AWS Services
+
+### Test S3 Upload
+
+```bash
+curl -X POST https://localhost:5001/api/habitaciones/1/upload-image \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@/path/to/image.jpg"
+```
+
+### Test Email Sending
+
+```bash
+curl -X POST https://localhost:5001/api/reservas/1/send-confirmation \
+  -H "Authorization: Bearer <token>"
+```
+
+## Troubleshooting
+
+### S3 Access Denied
+
+- Verify IAM permissions include `s3:PutObject`, `s3:GetObject`, etc.
+- Check bucket policy allows your IAM role
+- Ensure bucket exists and name is correct
+
+### SES Email Not Sending
+
+- Verify sender email is verified in SES console
+- Check SES is in production mode (or recipient is verified in sandbox)
+- Verify IAM permissions include `ses:SendEmail`
+- Check AWS region matches SES verification region
+
+### Credentials Not Found
+
+- Verify environment variables or IAM role is configured
+- Check `~/.aws/credentials` file exists
+- Ensure AWS SDK can access credentials
+
+## Cost Optimization
+
+<Card title="AWS Free Tier" icon="dollar-sign">
+  - **S3**: 5 GB storage, 20,000 GET requests, 2,000 PUT requests/month
+  - **SES**: 62,000 emails/month when sending from EC2
+</Card>
+
+<Warning>
+  Monitor your AWS usage to avoid unexpected charges. Set up billing alerts in AWS Console.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Configuration" icon="database" href="/configuration/database">
+    Set up SQL Server and Entity Framework
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Configure JWT authentication
+  </Card>
+</CardGroup>

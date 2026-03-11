@@ -1,0 +1,284 @@
+---
+title: Database Configuration
+description: Configure SQL Server database connection and Entity Framework Core for SGRH
+---
+
+## Overview
+
+SGRH uses **SQL Server** as its primary database, managed through **Entity Framework Core 8.0**. The application connects to an AWS RDS SQL Server instance and uses Code-First migrations for schema management.
+
+## Database Provider
+
+The project uses the following EF Core packages:
+
+- `Microsoft.EntityFrameworkCore.SqlServer` (v8.0.0)
+- `Microsoft.EntityFrameworkCore.Design` (v8.0.0)
+- `Microsoft.EntityFrameworkCore.Tools` (v8.0.0)
+
+## Connection String Configuration
+
+<Steps>
+  <Step title="Configure appsettings.json">
+    Add your database connection string to `appsettings.json`:
+
+    ```json appsettings.json
+    {
+      "ConnectionStrings": {
+        "Default": "Server=your-server.region.rds.amazonaws.com,1433;Database=SGRH;User Id=admin;Password=your-password;TrustServerCertificate=True;Encrypt=True;Connect Timeout=5;"
+      }
+    }
+    ```
+
+    <ParamField path="Server" type="string" required>
+      SQL Server hostname and port. For AWS RDS, use the endpoint provided by AWS.
+    </ParamField>
+
+    <ParamField path="Database" type="string" required>
+      Database name. Default: `SGRH`
+    </ParamField>
+
+    <ParamField path="User Id" type="string" required>
+      Database username for authentication
+    </ParamField>
+
+    <ParamField path="Password" type="string" required>
+      Database password (use environment variables in production)
+    </ParamField>
+
+    <ParamField path="TrustServerCertificate" type="boolean" default="True">
+      Set to `True` for self-signed certificates (common in development)
+    </ParamField>
+
+    <ParamField path="Encrypt" type="boolean" default="True">
+      Enable encrypted connections to the database
+    </ParamField>
+
+    <ParamField path="Connect Timeout" type="integer" default="5">
+      Connection timeout in seconds
+    </ParamField>
+  </Step>
+
+  <Step title="Register DbContext in Program.cs">
+    The `SGRHDbContext` is registered in the dependency injection container:
+
+    ```csharp Program.cs
+    using Microsoft.EntityFrameworkCore;
+    using SGRH.Persistence.Context;
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Register DbContext with SQL Server
+    builder.Services.AddDbContext<SGRHDbContext>(options =>
+        options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+    ```
+  </Step>
+
+  <Step title="Alternative: Use Infrastructure Extension">
+    For a cleaner setup, use the `AddInfrastructure` extension method from `SGRH.Infrastructure`:
+
+    ```csharp Program.cs
+    using SGRH.Infrastructure.DependencyInjection;
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Register all infrastructure services including DbContext
+    builder.Services.AddInfrastructure(builder.Configuration);
+    ```
+
+    This automatically:
+    - Registers `SGRHDbContext` with SQL Server
+    - Configures the Unit of Work pattern
+    - Registers all repository implementations
+  </Step>
+</Steps>
+
+<Warning>
+  **Never commit database credentials to source control!** Use environment variables or Azure Key Vault for production credentials.
+</Warning>
+
+## DbContext Structure
+
+The `SGRHDbContext` manages the following entity sets:
+
+```csharp SGRH.Persistence/Context/SgrhDbContext.cs
+public class SGRHDbContext : DbContext
+{
+    public SGRHDbContext(DbContextOptions<SGRHDbContext> options)
+        : base(options)
+    {
+    }
+
+    // CLIENTES
+    public DbSet<Cliente> Clientes => Set<Cliente>();
+
+    // HABITACIONES
+    public DbSet<CategoriaHabitacion> CategoriasHabitacion => Set<CategoriaHabitacion>();
+    public DbSet<Habitacion> Habitaciones => Set<Habitacion>();
+    public DbSet<HabitacionHistorial> HabitacionHistorial => Set<HabitacionHistorial>();
+    public DbSet<TarifaTemporada> TarifasTemporada => Set<TarifaTemporada>();
+
+    // RESERVAS
+    public DbSet<Reserva> Reservas => Set<Reserva>();
+    public DbSet<DetalleReserva> DetallesReserva => Set<DetalleReserva>();
+    public DbSet<ReservaServicioAdicional> ReservaServiciosAdicionales => Set<ReservaServicioAdicional>();
+
+    // SERVICIOS
+    public DbSet<ServicioAdicional> ServiciosAdicionales => Set<ServicioAdicional>();
+    public DbSet<ServicioCategoriaPrecio> ServicioCategoriaPrecios => Set<ServicioCategoriaPrecio>();
+    public DbSet<ServicioTemporada> ServicioTemporadas => Set<ServicioTemporada>();
+
+    // TEMPORADAS
+    public DbSet<Temporada> Temporadas => Set<Temporada>();
+
+    // SEGURIDAD
+    public DbSet<Usuario> Usuarios => Set<Usuario>();
+
+    // AUDITORIA
+    public DbSet<AuditoriaEvento> AuditoriaEventos => Set<AuditoriaEvento>();
+    public DbSet<AuditoriaEventoDetalle> AuditoriaEventoDetalles => Set<AuditoriaEventoDetalle>();
+}
+```
+
+See [SGRH.Persistence/Context/SgrhDbContext.cs:20](~/workspace/source/SGRH.Persistence/Context/SgrhDbContext.cs)
+
+## Entity Configurations
+
+Entity configurations are applied automatically using the Fluent API:
+
+```csharp SGRH.Persistence/Context/SgrhDbContext.cs
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // Apply all configurations from assembly
+    modelBuilder.ApplyConfigurationsFromAssembly(typeof(SGRHDbContext).Assembly);
+
+    // Explicit configurations for complex relationships
+    modelBuilder.ApplyConfiguration(new TarifaTemporadaConfiguration());
+    modelBuilder.ApplyConfiguration(new ReservaServicioAdicionalConfiguration());
+    modelBuilder.ApplyConfiguration(new DetalleReservaConfiguration());
+    modelBuilder.ApplyConfiguration(new HabitacionHistorialConfiguration());
+    modelBuilder.ApplyConfiguration(new AuditoriaEventoDetalleConfiguration());
+    modelBuilder.ApplyConfiguration(new ServicioCategoriaPrecioConfiguration());
+    modelBuilder.ApplyConfiguration(new ServicioTemporadaConfiguration());
+
+    // One-to-one relationship: Cliente <-> Usuario
+    modelBuilder.Entity<Cliente>()
+        .HasOne(e => e.Usuario)
+        .WithOne(u => u.Cliente)
+        .HasForeignKey<Usuario>(u => u.ClienteId)
+        .IsRequired();
+
+    base.OnModelCreating(modelBuilder);
+}
+```
+
+Configuration classes are located in `SGRH.Persistence/Configurations/`.
+
+## Running Migrations
+
+<CodeGroup>
+```bash Package Manager Console
+# Create a new migration
+Add-Migration InitialCreate -Project SGRH.Persistence -StartupProject SGRH.Api
+
+# Update database
+Update-Database -Project SGRH.Persistence -StartupProject SGRH.Api
+```
+
+```bash .NET CLI
+# Create a new migration
+dotnet ef migrations add InitialCreate --project SGRH.Persistence --startup-project SGRH.Api
+
+# Update database
+dotnet ef database update --project SGRH.Persistence --startup-project SGRH.Api
+```
+</CodeGroup>
+
+<Warning>
+  Always back up your database before running migrations in production!
+</Warning>
+
+## Environment-Specific Configuration
+
+<Tabs>
+  <Tab title="Development">
+    Use `appsettings.Development.json` for local development:
+
+    ```json appsettings.Development.json
+    {
+      "ConnectionStrings": {
+        "Default": "Server=localhost,1433;Database=SGRH_Dev;User Id=sa;Password=DevPassword123;TrustServerCertificate=True;"
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Production">
+    Use environment variables for production:
+
+    ```bash
+    export ConnectionStrings__Default="Server=prod-server;Database=SGRH;..."
+    ```
+
+    Or configure in Azure App Service Application Settings:
+    - Key: `ConnectionStrings:Default`
+    - Value: `Server=...;Database=SGRH;...`
+  </Tab>
+</Tabs>
+
+## Connection Pooling
+
+EF Core automatically uses connection pooling with SQL Server. Default pool settings:
+
+- **Min Pool Size**: 0
+- **Max Pool Size**: 100
+- **Connection Lifetime**: 0 (unlimited)
+
+To customize:
+
+```json
+"ConnectionStrings": {
+  "Default": "Server=...;Min Pool Size=5;Max Pool Size=50;..."
+}
+```
+
+## Troubleshooting
+
+### Connection Timeout Issues
+
+If experiencing timeout errors:
+
+1. Increase `Connect Timeout` in connection string
+2. Check network connectivity to database server
+3. Verify firewall rules allow connections on port 1433
+
+### SSL/TLS Certificate Errors
+
+For self-signed certificates, ensure:
+
+```
+TrustServerCertificate=True;Encrypt=True;
+```
+
+### Migration Errors
+
+If migrations fail:
+
+```bash
+# Remove last migration
+dotnet ef migrations remove --project SGRH.Persistence
+
+# Rebuild and try again
+dotnet build
+dotnet ef migrations add MigrationName --project SGRH.Persistence
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Setup" icon="lock" href="/configuration/authentication">
+    Configure JWT authentication and authorization
+  </Card>
+  <Card title="AWS Services" icon="aws" href="/configuration/aws-services">
+    Set up S3 storage and SES email services
+  </Card>
+</CardGroup>

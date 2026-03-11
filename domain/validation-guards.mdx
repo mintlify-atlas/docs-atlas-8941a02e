@@ -1,0 +1,585 @@
+---
+title: Validation Guards
+description: Guard clauses and validation patterns for domain entities
+---
+
+The SGRH domain uses **Guard Clauses** to enforce validation rules at entity boundaries. Guards provide consistent, fail-fast validation that prevents invalid data from entering the domain model.
+
+## Overview
+
+Guard clauses are static methods that validate inputs and throw exceptions when constraints are violated. They are used throughout entity constructors and public methods to ensure data integrity.
+
+**Namespace:** `SGRH.Domain.Common`
+
+**Source:** `~/workspace/source/SGRH.Domain/Common/Guard.cs`
+
+## Guard Methods
+
+The `Guard` static class provides validation methods for common scenarios:
+
+```csharp
+public static class Guard
+{
+    public static void AgainstNullOrWhiteSpace(string? value, string name, int maxLength);
+    public static void AgainstNull(object? value, string name);
+    public static void AgainstOutOfRange(int value, string name, int minExclusive);
+    public static void AgainstOutOfRange(long value, string name, long minExclusive);
+    public static void AgainstOutOfRange(decimal value, string name, decimal minExclusive);
+    public static void AgainstInvalidDateRange(DateTime start, DateTime end, 
+        string startName, string endName);
+}
+```
+
+## Guard Details
+
+### AgainstNullOrWhiteSpace
+
+```csharp
+public static void AgainstNullOrWhiteSpace(string? value, string name, int maxLength)
+```
+
+Validates string inputs for null/empty values and maximum length.
+
+**Validations:**
+1. Value is not null or whitespace
+2. Value length does not exceed `maxLength`
+
+**Throws:**
+- `ValidationException` with descriptive message
+
+**Examples:**
+
+<CodeGroup>
+```csharp Valid String
+Guard.AgainstNullOrWhiteSpace("John Doe", nameof(nombreCliente), 100);
+// Passes: non-empty and within length
+```
+
+```csharp Empty String
+Guard.AgainstNullOrWhiteSpace("", nameof(nombreCliente), 100);
+// Throws: ValidationException("nombreCliente no puede estar vacío.")
+```
+
+```csharp Whitespace Only
+Guard.AgainstNullOrWhiteSpace("   ", nameof(nombreCliente), 100);
+// Throws: ValidationException("nombreCliente no puede estar vacío.")
+```
+
+```csharp Exceeds Length
+Guard.AgainstNullOrWhiteSpace(new string('a', 150), nameof(nombreCliente), 100);
+// Throws: ValidationException("nombreCliente supera el máximo de 100 caracteres.")
+```
+</CodeGroup>
+
+**Usage in Entities:**
+
+```csharp
+public Cliente(
+    string nationalId,
+    string nombreCliente,
+    string apellidoCliente,
+    string email,
+    string telefono)
+{
+    Guard.AgainstNullOrWhiteSpace(nationalId, nameof(nationalId), 20);
+    Guard.AgainstNullOrWhiteSpace(nombreCliente, nameof(nombreCliente), 100);
+    Guard.AgainstNullOrWhiteSpace(apellidoCliente, nameof(apellidoCliente), 100);
+    Guard.AgainstNullOrWhiteSpace(email, nameof(email), 100);
+    Guard.AgainstNullOrWhiteSpace(telefono, nameof(telefono), 20);
+    
+    // Assignments after validation
+    NationalId = nationalId;
+    NombreCliente = nombreCliente;
+    // ...
+}
+```
+
+### AgainstNull
+
+```csharp
+public static void AgainstNull(object? value, string name)
+```
+
+Validates that an object reference is not null.
+
+**Throws:**
+- `ValidationException` if value is null
+
+**Examples:**
+
+```csharp
+Guard.AgainstNull(policy, nameof(policy));
+// Throws if policy is null: ValidationException("policy no puede ser null.")
+```
+
+**Usage in Entities:**
+
+```csharp
+public void CambiarFechas(
+    DateTime nuevaEntrada,
+    DateTime nuevaSalida,
+    IReservaDomainPolicy policy)
+{
+    Guard.AgainstNull(policy, nameof(policy));
+    // Rest of method...
+}
+```
+
+### AgainstOutOfRange (Integer)
+
+```csharp
+public static void AgainstOutOfRange(int value, string name, int minExclusive)
+```
+
+Validates that an integer is **greater than** the minimum (exclusive).
+
+**Throws:**
+- `ValidationException` if `value <= minExclusive`
+
+**Examples:**
+
+<CodeGroup>
+```csharp Valid ID
+Guard.AgainstOutOfRange(123, nameof(clienteId), 0);
+// Passes: 123 > 0
+```
+
+```csharp Zero Value
+Guard.AgainstOutOfRange(0, nameof(clienteId), 0);
+// Throws: ValidationException("clienteId debe ser mayor a 0.")
+```
+
+```csharp Negative Value
+Guard.AgainstOutOfRange(-5, nameof(cantidad), 0);
+// Throws: ValidationException("cantidad debe ser mayor a 0.")
+```
+</CodeGroup>
+
+**Usage in Entities:**
+
+```csharp
+public Habitacion(int categoriaHabitacionId, int numeroHabitacion, int piso)
+{
+    Guard.AgainstOutOfRange(categoriaHabitacionId, nameof(categoriaHabitacionId), 0);
+    Guard.AgainstOutOfRange(numeroHabitacion, nameof(numeroHabitacion), 0);
+    Guard.AgainstOutOfRange(piso, nameof(piso), 0);
+    
+    // Assignments...
+}
+```
+
+### AgainstOutOfRange (Decimal)
+
+```csharp
+public static void AgainstOutOfRange(decimal value, string name, decimal minExclusive)
+```
+
+Validates that a decimal is **greater than** the minimum (exclusive).
+
+**Throws:**
+- `ValidationException` if `value <= minExclusive`
+
+**Examples:**
+
+<CodeGroup>
+```csharp Valid Price
+Guard.AgainstOutOfRange(150.00m, nameof(precio), 0m);
+// Passes: 150.00 > 0
+```
+
+```csharp Zero Price
+Guard.AgainstOutOfRange(0m, nameof(precio), 0m);
+// Throws: ValidationException("precio debe ser mayor a 0.")
+```
+
+```csharp Negative Price
+Guard.AgainstOutOfRange(-10.00m, nameof(precio), 0m);
+// Throws: ValidationException("precio debe ser mayor a 0.")
+```
+</CodeGroup>
+
+**Usage in Entities:**
+
+```csharp
+public TarifaTemporada(int categoriaHabitacionId, int temporadaId, decimal precio)
+{
+    Guard.AgainstOutOfRange(categoriaHabitacionId, nameof(categoriaHabitacionId), 0);
+    Guard.AgainstOutOfRange(temporadaId, nameof(temporadaId), 0);
+    Guard.AgainstOutOfRange(precio, nameof(precio), 0m);
+    
+    // Assignments...
+}
+```
+
+### AgainstInvalidDateRange
+
+```csharp
+public static void AgainstInvalidDateRange(DateTime start, DateTime end,
+    string startName, string endName)
+```
+
+Validates that a date range is valid (start before end).
+
+**Throws:**
+- `ValidationException` if `start >= end`
+
+**Examples:**
+
+<CodeGroup>
+```csharp Valid Range
+var entrada = new DateTime(2026, 06, 01);
+var salida = new DateTime(2026, 06, 05);
+Guard.AgainstInvalidDateRange(entrada, salida, nameof(entrada), nameof(salida));
+// Passes: entrada < salida
+```
+
+```csharp Same Date
+var fecha = new DateTime(2026, 06, 01);
+Guard.AgainstInvalidDateRange(fecha, fecha, "entrada", "salida");
+// Throws: ValidationException("entrada debe ser anterior a salida.")
+```
+
+```csharp Reversed Dates
+var entrada = new DateTime(2026, 06, 10);
+var salida = new DateTime(2026, 06, 05);
+Guard.AgainstInvalidDateRange(entrada, salida, "entrada", "salida");
+// Throws: ValidationException("entrada debe ser anterior a salida.")
+```
+</CodeGroup>
+
+**Usage in Entities:**
+
+```csharp
+public Reserva(int clienteId, DateTime fechaEntrada, DateTime fechaSalida)
+{
+    Guard.AgainstOutOfRange(clienteId, nameof(clienteId), 0);
+    Guard.AgainstInvalidDateRange(fechaEntrada, fechaSalida,
+                                  nameof(fechaEntrada), nameof(fechaSalida));
+    
+    // Assignments...
+}
+```
+
+## Validation Patterns
+
+### Constructor Validation
+
+All entity constructors validate inputs before assignments:
+
+```csharp
+public ServicioAdicional(string nombreServicio, string tipoServicio)
+{
+    // Validate FIRST
+    Guard.AgainstNullOrWhiteSpace(nombreServicio, nameof(nombreServicio), 50);
+    Guard.AgainstNullOrWhiteSpace(tipoServicio, nameof(tipoServicio), 50);
+    
+    // Assign AFTER validation passes
+    NombreServicio = nombreServicio;
+    TipoServicio = tipoServicio;
+}
+```
+
+**Benefits:**
+- Entities are **always valid** after construction
+- No partially constructed invalid objects
+- Clear failure points with descriptive errors
+
+### Update Method Validation
+
+Update methods re-validate all inputs:
+
+```csharp
+public void ActualizarDatos(
+    string nombreCliente,
+    string apellidoCliente,
+    string email,
+    string telefono)
+{
+    // Same validations as constructor
+    Guard.AgainstNullOrWhiteSpace(nombreCliente, nameof(nombreCliente), 100);
+    Guard.AgainstNullOrWhiteSpace(apellidoCliente, nameof(apellidoCliente), 100);
+    Guard.AgainstNullOrWhiteSpace(email, nameof(email), 100);
+    Guard.AgainstNullOrWhiteSpace(telefono, nameof(telefono), 20);
+    
+    // Updates only happen if all validations pass
+    NombreCliente = nombreCliente;
+    ApellidoCliente = apellidoCliente;
+    Email = email;
+    Telefono = telefono;
+}
+```
+
+### Policy Parameter Validation
+
+Methods accepting policies validate the policy reference:
+
+```csharp
+public void AgregarHabitacion(int habitacionId, IReservaDomainPolicy policy)
+{
+    Guard.AgainstNull(policy, nameof(policy));
+    Guard.AgainstOutOfRange(habitacionId, nameof(habitacionId), 0);
+    
+    // Safe to use policy
+    policy.EnsureHabitacionDisponible(...);
+}
+```
+
+### Conditional Validation
+
+Some validations are conditional based on context:
+
+```csharp
+public HabitacionHistorial(int habitacionId, EstadoHabitacion estado, string? motivo)
+{
+    Guard.AgainstOutOfRange(habitacionId, nameof(habitacionId), 0);
+    
+    // Conditional validation based on state
+    if (estado is EstadoHabitacion.Mantenimiento or EstadoHabitacion.Limpieza)
+    {
+        if (string.IsNullOrWhiteSpace(motivo))
+            throw new ValidationException(
+                $"El estado {estado} requiere un motivo de cambio.");
+    }
+    else
+    {
+        if (!string.IsNullOrWhiteSpace(motivo))
+            throw new ValidationException(
+                $"El estado {estado} no debe tener motivo de cambio.");
+    }
+    
+    if (motivo is not null)
+        Guard.AgainstNullOrWhiteSpace(motivo, nameof(motivo), 255);
+    
+    // Assignments...
+}
+```
+
+## Exception Types
+
+### ValidationException
+
+Thrown by Guard clauses for input validation failures:
+
+```csharp
+public class ValidationException : Exception
+{
+    public ValidationException(string message) : base(message) { }
+}
+```
+
+**Usage:**
+- Invalid inputs (null, empty, out of range)
+- Constraint violations (max length, date ranges)
+- Precondition failures
+
+### BusinessRuleViolationException
+
+Thrown for business logic violations:
+
+```csharp
+public class BusinessRuleViolationException : Exception
+{
+    public BusinessRuleViolationException(string message) : base(message) { }
+}
+```
+
+**Usage:**
+- State transition violations (e.g., confirming a canceled reservation)
+- Editability rules (e.g., modifying a confirmed reservation)
+- Complex business constraints
+
+**Example:**
+
+```csharp
+private void EnsureEditable()
+{
+    if (EstadoReserva == EstadoReserva.Confirmada)
+        throw new BusinessRuleViolationException(
+            "Una reserva confirmada no puede ser modificada.");
+}
+```
+
+### ConflictException
+
+Thrown when operations conflict with existing data:
+
+```csharp
+public class ConflictException : Exception
+{
+    public ConflictException(string message) : base(message) { }
+}
+```
+
+**Usage:**
+- Duplicate entries (e.g., adding same room twice)
+- Resource conflicts (e.g., room already reserved)
+
+**Example:**
+
+```csharp
+if (_habitaciones.Any(h => h.HabitacionId == habitacionId))
+    throw new ConflictException(
+        "La habitación ya está incluida en esta reserva.");
+```
+
+### NotFoundException
+
+Thrown when referenced entities don't exist:
+
+```csharp
+public class NotFoundException : Exception
+{
+    public NotFoundException(string entity, string key) 
+        : base($"{entity} con clave '{key}' no encontrado.") { }
+}
+```
+
+**Usage:**
+- Entity not found by ID
+- Child entity not found in collection
+
+**Example:**
+
+```csharp
+var servicio = _servicios
+    .FirstOrDefault(s => s.ServicioAdicionalId == servicioAdicionalId)
+    ?? throw new NotFoundException(
+        "ReservaServicioAdicional", servicioAdicionalId.ToString());
+```
+
+## Best Practices
+
+<Accordion title="Validate Early">
+  - Guards at the **top** of methods, before any logic
+  - Fail fast before side effects
+  - Clear separation between validation and business logic
+  
+  ```csharp
+  public void CambiarEstado(EstadoHabitacion nuevoEstado, string? motivo = null)
+  {
+      // Validate first
+      if (EstadoActual?.EstadoHabitacion == nuevoEstado)
+          throw new BusinessRuleViolationException(...);
+      
+      // Business logic after validation
+      EstadoActual?.Cerrar();
+      _historial.Add(new HabitacionHistorial(...));
+  }
+  ```
+</Accordion>
+
+<Accordion title="Use Descriptive Names">
+  Use `nameof()` for parameter names in error messages:
+  
+  ```csharp
+  Guard.AgainstOutOfRange(clienteId, nameof(clienteId), 0);
+  // Error: "clienteId debe ser mayor a 0."
+  ```
+  
+  Benefits:
+  - Refactoring-safe (renames update automatically)
+  - Consistent error messages
+  - Clear identification of problematic parameter
+</Accordion>
+
+<Accordion title="Validate All Inputs">
+  Every public method and constructor should validate **all** inputs:
+  
+  ```csharp
+  public Temporada(string nombreTemporada, DateTime fechaInicio, DateTime fechaFin)
+  {
+      Guard.AgainstNullOrWhiteSpace(nombreTemporada, nameof(nombreTemporada), 50);
+      Guard.AgainstInvalidDateRange(fechaInicio, fechaFin,
+                                    nameof(fechaInicio), nameof(fechaFin));
+      
+      // All inputs validated before any assignment
+  }
+  ```
+</Accordion>
+
+<Accordion title="Choose Appropriate Exceptions">
+  - `ValidationException`: Input/parameter problems
+  - `BusinessRuleViolationException`: Business logic violations
+  - `ConflictException`: Duplicate/conflicting data
+  - `NotFoundException`: Missing referenced entities
+  
+  Match exception type to the problem category for clearer error handling.
+</Accordion>
+
+<Accordion title="Consistent Validation">
+  Apply the same validations in constructors and update methods:
+  
+  ```csharp
+  // Constructor
+  public CategoriaHabitacion(string nombreCategoria, int capacidad, 
+      string descripcion, decimal precioBase)
+  {
+      Guard.AgainstNullOrWhiteSpace(nombreCategoria, nameof(nombreCategoria), 50);
+      Guard.AgainstNullOrWhiteSpace(descripcion, nameof(descripcion), 255);
+      // ...
+  }
+  
+  // Update method - SAME validations
+  public void Actualizar(string nombreCategoria, int capacidad,
+      string descripcion, decimal precioBase)
+  {
+      Guard.AgainstNullOrWhiteSpace(nombreCategoria, nameof(nombreCategoria), 50);
+      Guard.AgainstNullOrWhiteSpace(descripcion, nameof(descripcion), 255);
+      // ...
+  }
+  ```
+</Accordion>
+
+## Testing Guards
+
+### Unit Test Examples
+
+```csharp
+[Fact]
+public void Constructor_WithEmptyNombre_ThrowsValidationException()
+{
+    // Arrange
+    var emptyName = "";
+    
+    // Act & Assert
+    var exception = Assert.Throws<ValidationException>(() =>
+        new Cliente(nationalId: "001-123", nombreCliente: emptyName, 
+                   apellidoCliente: "Pérez", email: "test@test.com", 
+                   telefono: "809-555-1234"));
+    
+    Assert.Contains("nombreCliente", exception.Message);
+    Assert.Contains("vacío", exception.Message);
+}
+
+[Fact]
+public void Constructor_WithInvalidDateRange_ThrowsValidationException()
+{
+    // Arrange
+    var entrada = new DateTime(2026, 06, 10);
+    var salida = new DateTime(2026, 06, 05); // Before entrada
+    
+    // Act & Assert
+    var exception = Assert.Throws<ValidationException>(() =>
+        new Reserva(clienteId: 1, fechaEntrada: entrada, fechaSalida: salida));
+    
+    Assert.Contains("anterior", exception.Message);
+}
+
+[Fact]
+public void ActualizarPrecio_WithZeroPrice_ThrowsValidationException()
+{
+    // Arrange
+    var tarifa = new TarifaTemporada(
+        categoriaHabitacionId: 1, temporadaId: 1, precio: 100m);
+    
+    // Act & Assert
+    Assert.Throws<ValidationException>(() => tarifa.ActualizarPrecio(0m));
+}
+```
+
+## Related Documentation
+
+- [Cliente](/domain/cliente) - Guard usage examples
+- [Reserva](/domain/reserva) - Complex validation patterns
+- [Habitacion](/domain/habitacion) - Conditional validation
+- [Reservation Policies](/domain/reservation-policies) - Business rule validation

@@ -1,0 +1,222 @@
+---
+title: API Introduction
+description: Overview of the SGRH REST API
+---
+
+Welcome to the **Sistema de Gestión de Reservas de Hoteles (SGRH)** REST API documentation.
+
+## Overview
+
+The SGRH API is a RESTful web service that provides a comprehensive hotel reservation management system. It follows a layered architecture with clean separation of concerns and implements CQRS patterns for optimal performance.
+
+## Base URL
+
+The API is hosted on AWS and accessible at:
+
+```
+https://api.sgrh.com/api
+```
+
+For local development:
+
+```
+http://localhost:5000/api
+https://localhost:5001/api
+```
+
+## API Architecture
+
+The SGRH API is built using:
+
+- **Framework**: ASP.NET Core 8 Web API
+- **Database**: SQL Server (AWS RDS)
+- **ORM**: Entity Framework Core
+- **Architecture**: Monolithic modular with layered architecture
+- **Pattern**: CQRS (Command Query Responsibility Segregation)
+- **Authentication**: JWT Bearer tokens
+
+## Response Format
+
+All API responses follow a consistent JSON structure:
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    // Response data here
+  },
+  "message": "Operation completed successfully"
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "ERROR_CODE",
+      "message": "Human-readable error message",
+      "field": "fieldName" // Optional, for validation errors
+    }
+  ],
+  "message": "Operation failed"
+}
+```
+
+### Paginated Response
+
+For list endpoints that support pagination:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      // Array of items
+    ],
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalPages": 5,
+    "totalCount": 95,
+    "hasPreviousPage": false,
+    "hasNextPage": true
+  }
+}
+```
+
+## HTTP Status Codes
+
+The API uses standard HTTP status codes:
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | OK - Request succeeded |
+| `201` | Created - Resource created successfully |
+| `204` | No Content - Request succeeded with no response body |
+| `400` | Bad Request - Invalid request parameters |
+| `401` | Unauthorized - Missing or invalid authentication |
+| `403` | Forbidden - Insufficient permissions |
+| `404` | Not Found - Resource not found |
+| `409` | Conflict - Business rule violation or duplicate resource |
+| `422` | Unprocessable Entity - Validation failed |
+| `500` | Internal Server Error - Server error |
+
+## Common Headers
+
+### Request Headers
+
+```http
+Content-Type: application/json
+Authorization: Bearer {your-jwt-token}
+X-Request-Id: {unique-request-id}
+```
+
+### Response Headers
+
+```http
+Content-Type: application/json
+X-Request-Id: {request-id}
+X-Correlation-Id: {correlation-id}
+```
+
+## Rate Limiting
+
+The API implements rate limiting to ensure fair usage:
+
+- **Rate Limit**: 100 requests per minute per IP
+- **Headers**: Rate limit information is included in response headers
+  - `X-RateLimit-Limit`: Maximum requests allowed
+  - `X-RateLimit-Remaining`: Remaining requests in current window
+  - `X-RateLimit-Reset`: Time when the rate limit resets (Unix timestamp)
+
+## Data Formats
+
+### Dates and Times
+
+All dates and times are in **ISO 8601 format** and **UTC timezone**:
+
+```json
+{
+  "fechaReserva": "2024-03-15T14:30:00Z",
+  "fechaEntrada": "2024-03-20",
+  "fechaSalida": "2024-03-25"
+}
+```
+
+### Currency
+
+All monetary values are represented as decimal numbers:
+
+```json
+{
+  "precio": 150.00,
+  "costoTotal": 750.00
+}
+```
+
+## Validation
+
+The API performs comprehensive validation on all inputs:
+
+- **Field validation**: Type, length, format validation
+- **Business rules**: Domain-specific validation (e.g., date ranges, availability)
+- **Reference validation**: Foreign key and relationship validation
+
+Validation errors return a `422` status with detailed field-level error messages.
+
+## API Modules
+
+The SGRH API is organized into the following modules:
+
+<CardGroup cols={2}>
+  <Card title="Clientes" icon="users" href="/api/clientes">
+    Client management and registration
+  </Card>
+  <Card title="Reservas" icon="calendar-check" href="/api/reservas">
+    Reservation creation and management
+  </Card>
+  <Card title="Habitaciones" icon="bed" href="/api/habitaciones">
+    Room inventory and state management
+  </Card>
+  <Card title="Tarifas y Temporadas" icon="tag" href="/api/tarifas-temporadas">
+    Pricing and seasonal rates
+  </Card>
+  <Card title="Servicios Adicionales" icon="concierge-bell" href="/api/servicios-adicionales">
+    Additional services (spa, meals, etc.)
+  </Card>
+  <Card title="Reportes" icon="chart-bar" href="/api/reportes">
+    Business intelligence and analytics
+  </Card>
+  <Card title="Auditoría" icon="clipboard-list" href="/api/auditoria">
+    Audit logs and traceability
+  </Card>
+</CardGroup>
+
+## Swagger/OpenAPI
+
+Interactive API documentation is available via Swagger UI in development mode:
+
+```
+http://localhost:5000/swagger
+```
+
+## Getting Started
+
+To start using the API:
+
+1. **Authenticate** - Obtain a JWT token using the [Authentication](/api/authentication) endpoint
+2. **Explore** - Browse the endpoint documentation for your use case
+3. **Test** - Use the provided curl and C# examples
+4. **Integrate** - Build your application using the SDK or HTTP client
+
+## Support
+
+For API support, please contact:
+
+- **Email**: api-support@sgrh.com
+- **Documentation**: https://docs.sgrh.com
+- **Status Page**: https://status.sgrh.com

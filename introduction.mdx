@@ -1,0 +1,194 @@
+---
+title: Introduction
+description: Welcome to SGRH - A comprehensive hotel reservation management system built with .NET 8
+---
+
+# Introduction to SGRH
+
+The **Sistema de Gestión de Reservas de Hoteles (SGRH)** is a hotel reservation management system developed using a layered architecture (modular monolith) with a centralized backend that exposes a REST API consumed by Web and Desktop clients.
+
+## What is SGRH?
+
+SGRH is a comprehensive solution designed to manage all aspects of hotel operations, from customer management to reservations, room tracking, and reporting. The system is built following clean architecture principles with strict separation of concerns and dependency inversion.
+
+## Key Features
+
+The system provides complete management capabilities for:
+
+<CardGroup cols={2}>
+  <Card title="Customer Management" icon="users">
+    Manage customer profiles with personal information, contact details, and reservation history
+  </Card>
+  
+  <Card title="Reservations" icon="calendar-check">
+    Create, modify, and track reservations with flexible date management and status tracking
+  </Card>
+  
+  <Card title="Room Management" icon="bed">
+    Track room availability, categories, status history, and maintenance schedules
+  </Card>
+  
+  <Card title="Pricing & Seasons" icon="dollar-sign">
+    Dynamic pricing based on seasons and room categories with automated rate application
+  </Card>
+  
+  <Card title="Additional Services" icon="concierge-bell">
+    Manage additional services with quantity tracking and seasonal pricing
+  </Card>
+  
+  <Card title="Reports & Analytics" icon="chart-line">
+    Generate comprehensive reports on reservations, occupancy, and revenue
+  </Card>
+  
+  <Card title="Audit & Traceability" icon="clipboard-list">
+    Complete audit trail of all system operations with event tracking
+  </Card>
+  
+  <Card title="Security" icon="shield-check">
+    JWT-based authentication with role-based authorization for administrators and receptionists
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+### Backend
+
+<CodeGroup>
+```text Framework
+.NET 8
+ASP.NET Core Web API
+Entity Framework Core
+```
+
+```text Database
+MySQL Server
+Entity Framework Core Migrations
+```
+
+```text API Documentation
+Swagger / OpenAPI
+Swashbuckle.AspNetCore
+```
+</CodeGroup>
+
+### Cloud Infrastructure
+
+SGRH integrates with AWS services for enhanced functionality:
+
+- **Amazon S3** - File and document storage
+- **Amazon SES** - Email notifications and communications
+- **AWS SDK** - Cloud service integration
+
+### Client Applications
+
+<CardGroup cols={2}>
+  <Card title="Web Client" icon="globe">
+    Blazor Server application providing web-based access to the system
+  </Card>
+  
+  <Card title="Desktop Client" icon="desktop">
+    .NET MAUI Blazor Hybrid application for administrative staff and receptionists
+  </Card>
+</CardGroup>
+
+## Core Domain Concepts
+
+SGRH implements rich domain models with business logic encapsulation:
+
+### Reservations
+
+Reservations are the heart of the system, managing the booking lifecycle:
+
+```csharp SGRH.Domain/Entities/Reservas/Reserva.cs
+public sealed class Reserva : EntityBase
+{
+    public int ReservaId { get; private set; }
+    public int ClienteId { get; private set; }
+    public EstadoReserva EstadoReserva { get; private set; }
+    public DateTime FechaReserva { get; private set; }
+    public DateTime FechaEntrada { get; private set; }
+    public DateTime FechaSalida { get; private set; }
+
+    public decimal CostoTotal =>
+        _habitaciones.Sum(h => h.TarifaAplicada) +
+        _servicios.Sum(s => s.SubTotal);
+
+    public IReadOnlyCollection<DetalleReserva> Habitaciones => _habitaciones;
+    public IReadOnlyCollection<ReservaServicioAdicional> Servicios => _servicios;
+}
+```
+
+### Reservation States
+
+Reservations flow through well-defined states:
+
+- **Pendiente** - Initial state when created
+- **Confirmada** - Confirmed and locked for check-in
+- **Finalizada** - Completed after checkout
+- **Cancelada** - Cancelled by customer or staff
+
+<Note>
+  Confirmed, finalized, and cancelled reservations cannot be modified, ensuring data integrity and preventing accidental changes to completed bookings.
+</Note>
+
+### Room Management
+
+Rooms maintain a complete status history:
+
+```csharp SGRH.Domain/Entities/Habitaciones/Habitacion.cs
+public sealed class Habitacion : EntityBase
+{
+    public int HabitacionId { get; private set; }
+    public int CategoriaHabitacionId { get; private set; }
+    public int NumeroHabitacion { get; private set; }
+    public int Piso { get; private set; }
+
+    public IReadOnlyCollection<HabitacionHistorial> Historial => _historial;
+    
+    public HabitacionHistorial? EstadoActual
+        => _historial.FirstOrDefault(h => h.FechaFin is null);
+}
+```
+
+## Security Features
+
+SGRH implements comprehensive security measures:
+
+- **JWT Authentication** - Secure token-based authentication
+- **Role-Based Authorization** - Separate permissions for administrators and receptionists
+- **Audit Trail** - Complete tracking of all system operations
+- **HTTPS** - Encrypted communication in development and production
+
+## Architecture Highlights
+
+The system is built on solid architectural principles:
+
+<CardGroup cols={2}>
+  <Card title="Domain-Driven Design">
+    Rich domain models with encapsulated business logic and invariants
+  </Card>
+  
+  <Card title="Dependency Inversion">
+    Domain defines contracts, infrastructure implements them
+  </Card>
+  
+  <Card title="Separation of Concerns">
+    Clear boundaries between layers with minimal coupling
+  </Card>
+  
+  <Card title="Policy-Based Validation">
+    Business rules enforced through domain policies
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Learn about the layered architecture and project structure
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get SGRH up and running on your local machine
+  </Card>
+</CardGroup>

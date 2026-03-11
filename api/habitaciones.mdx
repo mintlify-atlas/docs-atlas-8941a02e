@@ -1,0 +1,697 @@
+---
+title: Habitaciones
+description: Room inventory and state management endpoints
+---
+
+Manage hotel rooms including creation, updates, state changes, and availability queries.
+
+## Room Object
+
+The room object represents a physical hotel room with its current state and category.
+
+### Attributes
+
+<ResponseField name="habitacionId" type="number">
+  Unique identifier for the room
+</ResponseField>
+
+<ResponseField name="numeroHabitacion" type="number">
+  Room number (visible to guests)
+</ResponseField>
+
+<ResponseField name="piso" type="number">
+  Floor number where the room is located
+</ResponseField>
+
+<ResponseField name="categoriaHabitacionId" type="number">
+  ID of the room category
+</ResponseField>
+
+<ResponseField name="categoria" type="object">
+  Room category details
+  <ResponseField name="nombreCategoria" type="string">
+    Category name (e.g., "Suite", "Doble", "Individual")
+  </ResponseField>
+  <ResponseField name="capacidad" type="number">
+    Maximum occupancy
+  </ResponseField>
+  <ResponseField name="descripcion" type="string">
+    Category description
+  </ResponseField>
+  <ResponseField name="precioBase" type="number">
+    Base price for this category
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="estadoActual" type="object">
+  Current room state
+  <ResponseField name="estadoHabitacion" type="string">
+    Current state: `Disponible`, `Ocupada`, `Mantenimiento`, `Limpieza`
+  </ResponseField>
+  <ResponseField name="fechaInicio" type="string">
+    When this state began
+  </ResponseField>
+  <ResponseField name="motivo" type="string">
+    Reason for state change (required for Mantenimiento)
+  </ResponseField>
+</ResponseField>
+
+## Room States
+
+Rooms can be in one of four states:
+
+- **Disponible**: Available for booking
+- **Ocupada**: Currently occupied by a guest
+- **Mantenimiento**: Under maintenance (requires a reason)
+- **Limpieza**: Being cleaned
+
+## List Rooms
+
+Retrieve a paginated list of rooms with filtering options.
+
+### Endpoint
+
+```http
+GET /api/habitaciones
+```
+
+### Query Parameters
+
+<ParamField query="pageNumber" type="number" default="1">
+  Page number for pagination
+</ParamField>
+
+<ParamField query="pageSize" type="number" default="20">
+  Number of items per page (max 100)
+</ParamField>
+
+<ParamField query="categoriaId" type="number">
+  Filter by room category ID
+</ParamField>
+
+<ParamField query="estado" type="string">
+  Filter by state: `Disponible`, `Ocupada`, `Mantenimiento`, `Limpieza`
+</ParamField>
+
+<ParamField query="piso" type="number">
+  Filter by floor number
+</ParamField>
+
+<ParamField query="disponibleDesde" type="string">
+  Check availability from this date (ISO 8601)
+</ParamField>
+
+<ParamField query="disponibleHasta" type="string">
+  Check availability until this date (ISO 8601)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/habitaciones?estado=Disponible&piso=2" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var query = "?estado=Disponible&piso=2";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/habitaciones{query}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "habitacionId": 201,
+        "numeroHabitacion": 201,
+        "piso": 2,
+        "categoriaHabitacionId": 1,
+        "nombreCategoria": "Suite",
+        "capacidad": 4,
+        "estadoActual": "Disponible",
+        "precioBase": 250.00
+      },
+      {
+        "habitacionId": 202,
+        "numeroHabitacion": 202,
+        "piso": 2,
+        "categoriaHabitacionId": 2,
+        "nombreCategoria": "Doble",
+        "capacidad": 2,
+        "estadoActual": "Disponible",
+        "precioBase": 150.00
+      }
+    ],
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalPages": 1,
+    "totalCount": 2
+  }
+}
+```
+
+## Get Room by ID
+
+Retrieve detailed information about a specific room including its state history.
+
+### Endpoint
+
+```http
+GET /api/habitaciones/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the room
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/habitaciones/201 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/habitaciones/{habitacionId}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "habitacionId": 201,
+    "numeroHabitacion": 201,
+    "piso": 2,
+    "categoriaHabitacionId": 1,
+    "categoria": {
+      "categoriaHabitacionId": 1,
+      "nombreCategoria": "Suite",
+      "capacidad": 4,
+      "descripcion": "Suite de lujo con vista al mar",
+      "precioBase": 250.00
+    },
+    "estadoActual": {
+      "estadoHabitacion": "Disponible",
+      "fechaInicio": "2024-03-15T10:00:00Z",
+      "motivo": null
+    },
+    "historial": [
+      {
+        "estadoHabitacion": "Limpieza",
+        "fechaInicio": "2024-03-15T08:00:00Z",
+        "fechaFin": "2024-03-15T10:00:00Z",
+        "motivo": null
+      },
+      {
+        "estadoHabitacion": "Ocupada",
+        "fechaInicio": "2024-03-10T15:00:00Z",
+        "fechaFin": "2024-03-15T08:00:00Z",
+        "motivo": null
+      }
+    ]
+  }
+}
+```
+
+## Create Room
+
+Register a new room in the hotel inventory.
+
+### Endpoint
+
+```http
+POST /api/habitaciones
+```
+
+### Request Body
+
+<ParamField body="numeroHabitacion" type="number" required>
+  Room number (must be unique)
+</ParamField>
+
+<ParamField body="piso" type="number" required>
+  Floor number (must be greater than 0)
+</ParamField>
+
+<ParamField body="categoriaHabitacionId" type="number" required>
+  ID of the room category
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/habitaciones \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "numeroHabitacion": 301,
+    "piso": 3,
+    "categoriaHabitacionId": 1
+  }'
+```
+
+```csharp C#
+var nuevaHabitacion = new
+{
+    NumeroHabitacion = 301,
+    Piso = 3,
+    CategoriaHabitacionId = 1
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(nuevaHabitacion),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/habitaciones",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "habitacionId": 301,
+    "numeroHabitacion": 301,
+    "piso": 3,
+    "categoriaHabitacionId": 1,
+    "estadoActual": "Disponible"
+  },
+  "message": "Habitación creada exitosamente"
+}
+```
+
+## Update Room
+
+Update a room's category or floor.
+
+### Endpoint
+
+```http
+PUT /api/habitaciones/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the room to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="categoriaHabitacionId" type="number" required>
+  New category ID
+</ParamField>
+
+<Note>
+The room number cannot be changed once created. To change the floor, you must create a new room.
+</Note>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X PUT https://api.sgrh.com/api/habitaciones/301 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoriaHabitacionId": 2
+  }'
+```
+
+```csharp C#
+var actualizarHabitacion = new
+{
+    CategoriaHabitacionId = 2
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(actualizarHabitacion),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PutAsync(
+    $"https://api.sgrh.com/api/habitaciones/{habitacionId}",
+    content
+);
+```
+</CodeGroup>
+
+## Change Room State
+
+Change the state of a room (e.g., from Disponible to Mantenimiento).
+
+### Endpoint
+
+```http
+POST /api/habitaciones/{id}/estado
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the room
+</ParamField>
+
+### Request Body
+
+<ParamField body="nuevoEstado" type="string" required>
+  New state: `Disponible`, `Ocupada`, `Mantenimiento`, `Limpieza`
+</ParamField>
+
+<ParamField body="motivo" type="string">
+  Reason for state change (required when changing to `Mantenimiento`, optional for others)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/habitaciones/201/estado \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nuevoEstado": "Mantenimiento",
+    "motivo": "Reparación de aire acondicionado"
+  }'
+```
+
+```csharp C#
+var cambiarEstado = new
+{
+    NuevoEstado = "Mantenimiento",
+    Motivo = "Reparación de aire acondicionado"
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(cambiarEstado),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    $"https://api.sgrh.com/api/habitaciones/{habitacionId}/estado",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "habitacionId": 201,
+    "estadoAnterior": "Disponible",
+    "estadoNuevo": "Mantenimiento",
+    "fechaCambio": "2024-03-15T14:30:00Z"
+  },
+  "message": "Estado de habitación actualizado exitosamente"
+}
+```
+
+## Check Room Availability
+
+Check if a room or rooms are available for specific dates.
+
+### Endpoint
+
+```http
+GET /api/habitaciones/disponibilidad
+```
+
+### Query Parameters
+
+<ParamField query="fechaEntrada" type="string" required>
+  Check-in date (ISO 8601 format)
+</ParamField>
+
+<ParamField query="fechaSalida" type="string" required>
+  Check-out date (ISO 8601 format)
+</ParamField>
+
+<ParamField query="categoriaId" type="number">
+  Filter by room category
+</ParamField>
+
+<ParamField query="capacidadMinima" type="number">
+  Minimum occupancy required
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/habitaciones/disponibilidad?fechaEntrada=2024-04-15&fechaSalida=2024-04-20&categoriaId=1" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var query = "?fechaEntrada=2024-04-15&fechaSalida=2024-04-20&categoriaId=1";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/habitaciones/disponibilidad{query}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "fechaEntrada": "2024-04-15",
+    "fechaSalida": "2024-04-20",
+    "habitacionesDisponibles": [
+      {
+        "habitacionId": 201,
+        "numeroHabitacion": 201,
+        "categoria": "Suite",
+        "capacidad": 4,
+        "precioAplicado": 275.00
+      },
+      {
+        "habitacionId": 301,
+        "numeroHabitacion": 301,
+        "categoria": "Suite",
+        "capacidad": 4,
+        "precioAplicado": 275.00
+      }
+    ],
+    "totalDisponibles": 2
+  }
+}
+```
+
+## Room Categories
+
+### List Categories
+
+Retrieve all room categories.
+
+#### Endpoint
+
+```http
+GET /api/habitaciones/categorias
+```
+
+#### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/habitaciones/categorias \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    "https://api.sgrh.com/api/habitaciones/categorias"
+);
+```
+</CodeGroup>
+
+#### Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "categoriaHabitacionId": 1,
+      "nombreCategoria": "Suite",
+      "capacidad": 4,
+      "descripcion": "Suite de lujo con vista al mar",
+      "precioBase": 250.00,
+      "totalHabitaciones": 10
+    },
+    {
+      "categoriaHabitacionId": 2,
+      "nombreCategoria": "Doble",
+      "capacidad": 2,
+      "descripcion": "Habitación doble estándar",
+      "precioBase": 150.00,
+      "totalHabitaciones": 20
+    },
+    {
+      "categoriaHabitacionId": 3,
+      "nombreCategoria": "Individual",
+      "capacidad": 1,
+      "descripcion": "Habitación individual económica",
+      "precioBase": 100.00,
+      "totalHabitaciones": 15
+    }
+  ]
+}
+```
+
+### Create Category
+
+Create a new room category.
+
+#### Endpoint
+
+```http
+POST /api/habitaciones/categorias
+```
+
+#### Request Body
+
+<ParamField body="nombreCategoria" type="string" required>
+  Category name (max 50 characters, must be unique)
+</ParamField>
+
+<ParamField body="capacidad" type="number" required>
+  Maximum occupancy (must be greater than 0)
+</ParamField>
+
+<ParamField body="descripcion" type="string" required>
+  Category description (max 255 characters)
+</ParamField>
+
+<ParamField body="precioBase" type="number" required>
+  Base price (must be greater than 0)
+</ParamField>
+
+#### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/habitaciones/categorias \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombreCategoria": "Presidential Suite",
+    "capacidad": 6,
+    "descripcion": "Suite presidencial con terraza privada",
+    "precioBase": 500.00
+  }'
+```
+
+```csharp C#
+var nuevaCategoria = new
+{
+    NombreCategoria = "Presidential Suite",
+    Capacidad = 6,
+    Descripcion = "Suite presidencial con terraza privada",
+    PrecioBase = 500.00M
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(nuevaCategoria),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/habitaciones/categorias",
+    content
+);
+```
+</CodeGroup>
+
+## Error Responses
+
+### Room Already Exists
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "DUPLICATE_ROOM",
+      "message": "Ya existe una habitación con el número 301"
+    }
+  ],
+  "message": "Conflict"
+}
+```
+
+### Invalid State Transition
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "INVALID_STATE_CHANGE",
+      "message": "La habitación ya se encuentra en estado Disponible"
+    }
+  ],
+  "message": "Business rule violation"
+}
+```
+
+### Maintenance Requires Reason
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "MOTIVO_REQUIRED",
+      "message": "El motivo es requerido al cambiar a estado Mantenimiento",
+      "field": "motivo"
+    }
+  ],
+  "message": "Validation failed"
+}
+```
+
+### Room Not Available
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "ROOM_NOT_AVAILABLE",
+      "message": "La habitación 201 no está disponible para las fechas solicitadas"
+    }
+  ],
+  "message": "Business rule violation"
+}
+```

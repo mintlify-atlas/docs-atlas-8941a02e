@@ -1,0 +1,665 @@
+---
+title: Servicios Adicionales
+description: Additional services management endpoints
+---
+
+Manage additional services offered to guests such as meals, spa treatments, tours, and other amenities.
+
+## Servicio Adicional Object
+
+The servicio adicional (additional service) represents an extra service that can be added to reservations.
+
+### Attributes
+
+<ResponseField name="servicioAdicionalId" type="number">
+  Unique identifier for the service
+</ResponseField>
+
+<ResponseField name="nombreServicio" type="string">
+  Service name (max 50 characters)
+</ResponseField>
+
+<ResponseField name="tipoServicio" type="string">
+  Service type/category (max 50 characters)
+  
+  Examples: `Comida`, `Spa`, `Transporte`, `Entretenimiento`, `Otros`
+</ResponseField>
+
+<ResponseField name="precio" type="number">
+  Base price per unit
+</ResponseField>
+
+<ResponseField name="disponible" type="boolean">
+  Whether the service is currently available
+</ResponseField>
+
+<ResponseField name="temporadas" type="array">
+  Seasons in which this service is available (empty = available all year)
+  <ResponseField name="temporadaId" type="number">
+    Season ID
+  </ResponseField>
+  <ResponseField name="nombreTemporada" type="string">
+    Season name
+  </ResponseField>
+</ResponseField>
+
+## List Servicios Adicionales
+
+Retrieve a paginated list of additional services.
+
+### Endpoint
+
+```http
+GET /api/servicios-adicionales
+```
+
+### Query Parameters
+
+<ParamField query="pageNumber" type="number" default="1">
+  Page number for pagination
+</ParamField>
+
+<ParamField query="pageSize" type="number" default="20">
+  Number of items per page (max 100)
+</ParamField>
+
+<ParamField query="tipoServicio" type="string">
+  Filter by service type
+</ParamField>
+
+<ParamField query="disponible" type="boolean">
+  Filter by availability status
+</ParamField>
+
+<ParamField query="searchTerm" type="string">
+  Search by service name
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/servicios-adicionales?disponible=true" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var query = "?disponible=true";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales{query}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "servicioAdicionalId": 1,
+        "nombreServicio": "Desayuno",
+        "tipoServicio": "Comida",
+        "precio": 15.00,
+        "disponible": true,
+        "temporadasCount": 0
+      },
+      {
+        "servicioAdicionalId": 2,
+        "nombreServicio": "Masaje Relajante",
+        "tipoServicio": "Spa",
+        "precio": 80.00,
+        "disponible": true,
+        "temporadasCount": 2
+      },
+      {
+        "servicioAdicionalId": 3,
+        "nombreServicio": "Tour a la Playa",
+        "tipoServicio": "Entretenimiento",
+        "precio": 50.00,
+        "disponible": true,
+        "temporadasCount": 1
+      }
+    ],
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalPages": 1,
+    "totalCount": 3
+  }
+}
+```
+
+## Get Servicio Adicional by ID
+
+Retrieve detailed information about a specific service.
+
+### Endpoint
+
+```http
+GET /api/servicios-adicionales/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/servicios-adicionales/1 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "servicioAdicionalId": 1,
+    "nombreServicio": "Desayuno",
+    "tipoServicio": "Comida",
+    "precio": 15.00,
+    "disponible": true,
+    "temporadas": [],
+    "descripcion": "Desayuno buffet continental",
+    "totalReservas": 150
+  }
+}
+```
+
+## Create Servicio Adicional
+
+Create a new additional service.
+
+### Endpoint
+
+```http
+POST /api/servicios-adicionales
+```
+
+### Request Body
+
+<ParamField body="nombreServicio" type="string" required>
+  Service name (max 50 characters)
+</ParamField>
+
+<ParamField body="tipoServicio" type="string" required>
+  Service type (max 50 characters)
+</ParamField>
+
+<ParamField body="precio" type="number">
+  Base price per unit (optional, can be set later)
+</ParamField>
+
+<ParamField body="temporadaIds" type="array">
+  Array of season IDs where this service is available (empty = all seasons)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/servicios-adicionales \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombreServicio": "Cena Romántica",
+    "tipoServicio": "Comida",
+    "precio": 120.00,
+    "temporadaIds": [1]
+  }'
+```
+
+```csharp C#
+var nuevoServicio = new
+{
+    NombreServicio = "Cena Romántica",
+    TipoServicio = "Comida",
+    Precio = 120.00M,
+    TemporadaIds = new[] { 1 }
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(nuevoServicio),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    "https://api.sgrh.com/api/servicios-adicionales",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "servicioAdicionalId": 4,
+    "nombreServicio": "Cena Romántica",
+    "tipoServicio": "Comida",
+    "precio": 120.00,
+    "disponible": true
+  },
+  "message": "Servicio adicional creado exitosamente"
+}
+```
+
+## Update Servicio Adicional
+
+Update an existing service's information.
+
+### Endpoint
+
+```http
+PUT /api/servicios-adicionales/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="nombreServicio" type="string" required>
+  Service name (max 50 characters)
+</ParamField>
+
+<ParamField body="tipoServicio" type="string" required>
+  Service type (max 50 characters)
+</ParamField>
+
+<ParamField body="precio" type="number">
+  Base price per unit
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X PUT https://api.sgrh.com/api/servicios-adicionales/4 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombreServicio": "Cena Romántica Premium",
+    "tipoServicio": "Comida",
+    "precio": 150.00
+  }'
+```
+
+```csharp C#
+var actualizarServicio = new
+{
+    NombreServicio = "Cena Romántica Premium",
+    TipoServicio = "Comida",
+    Precio = 150.00M
+};
+
+var content = new StringContent(
+    JsonSerializer.Serialize(actualizarServicio),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PutAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "servicioAdicionalId": 4,
+    "nombreServicio": "Cena Romántica Premium",
+    "tipoServicio": "Comida",
+    "precio": 150.00,
+    "disponible": true
+  },
+  "message": "Servicio actualizado exitosamente"
+}
+```
+
+## Delete Servicio Adicional
+
+Delete a service from the system.
+
+### Endpoint
+
+```http
+DELETE /api/servicios-adicionales/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service to delete
+</ParamField>
+
+<Warning>
+A service cannot be deleted if it's currently included in any active reservations.
+</Warning>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE https://api.sgrh.com/api/servicios-adicionales/4 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.DeleteAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "message": "Servicio eliminado exitosamente"
+}
+```
+
+## Enable Service for Season
+
+Make a service available during a specific season.
+
+### Endpoint
+
+```http
+POST /api/servicios-adicionales/{id}/temporadas
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service
+</ParamField>
+
+### Request Body
+
+<ParamField body="temporadaId" type="number" required>
+  Season ID to enable the service for
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.sgrh.com/api/servicios-adicionales/3/temporadas \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "temporadaId": 2
+  }'
+```
+
+```csharp C#
+var request = new { TemporadaId = 2 };
+
+var content = new StringContent(
+    JsonSerializer.Serialize(request),
+    Encoding.UTF8,
+    "application/json"
+);
+
+var response = await client.PostAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}/temporadas",
+    content
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "message": "Servicio habilitado para la temporada"
+}
+```
+
+## Disable Service for Season
+
+Remove a service's availability from a specific season.
+
+### Endpoint
+
+```http
+DELETE /api/servicios-adicionales/{id}/temporadas/{temporadaId}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service
+</ParamField>
+
+<ParamField path="temporadaId" type="number" required>
+  Season ID to disable the service for
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE https://api.sgrh.com/api/servicios-adicionales/3/temporadas/2 \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var response = await client.DeleteAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}/temporadas/{temporadaId}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "message": "Servicio deshabilitado para la temporada"
+}
+```
+
+## Get Services by Category
+
+Retrieve all services of a specific type/category.
+
+### Endpoint
+
+```http
+GET /api/servicios-adicionales/categorias/{categoria}
+```
+
+### Path Parameters
+
+<ParamField path="categoria" type="string" required>
+  Service category name
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET https://api.sgrh.com/api/servicios-adicionales/categorias/Spa \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var categoria = "Spa";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/categorias/{categoria}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "servicioAdicionalId": 2,
+      "nombreServicio": "Masaje Relajante",
+      "tipoServicio": "Spa",
+      "precio": 80.00,
+      "disponible": true
+    },
+    {
+      "servicioAdicionalId": 5,
+      "nombreServicio": "Tratamiento Facial",
+      "tipoServicio": "Spa",
+      "precio": 60.00,
+      "disponible": true
+    }
+  ]
+}
+```
+
+## Check Service Availability
+
+Check if a service is available for a specific date range.
+
+### Endpoint
+
+```http
+GET /api/servicios-adicionales/{id}/disponibilidad
+```
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  The unique identifier of the service
+</ParamField>
+
+### Query Parameters
+
+<ParamField query="fechaEntrada" type="string" required>
+  Check-in date (ISO 8601 format)
+</ParamField>
+
+<ParamField query="fechaSalida" type="string" required>
+  Check-out date (ISO 8601 format)
+</ParamField>
+
+### Request Example
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.sgrh.com/api/servicios-adicionales/3/disponibilidad?fechaEntrada=2024-12-20&fechaSalida=2024-12-25" \
+  -H "Authorization: Bearer {token}"
+```
+
+```csharp C#
+var query = "?fechaEntrada=2024-12-20&fechaSalida=2024-12-25";
+var response = await client.GetAsync(
+    $"https://api.sgrh.com/api/servicios-adicionales/{servicioId}/disponibilidad{query}"
+);
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "servicioAdicionalId": 3,
+    "nombreServicio": "Tour a la Playa",
+    "disponible": true,
+    "temporadaAplicable": {
+      "temporadaId": 1,
+      "nombreTemporada": "Temporada Alta"
+    },
+    "precioAplicable": 50.00
+  }
+}
+```
+
+## Service Categories
+
+Common service categories used in the system:
+
+| Category | Description | Examples |
+|----------|-------------|----------|
+| `Comida` | Food and beverage services | Breakfast, Lunch, Dinner, Room Service |
+| `Spa` | Wellness and spa services | Massage, Facial, Sauna |
+| `Transporte` | Transportation services | Airport Transfer, Car Rental, Tours |
+| `Entretenimiento` | Entertainment and activities | Beach Tour, Snorkeling, City Tour |
+| `Otros` | Miscellaneous services | Laundry, Late Check-out, Extra Bed |
+
+## Error Responses
+
+### Service Not Available
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "SERVICE_NOT_AVAILABLE",
+      "message": "El servicio no está disponible para las fechas seleccionadas"
+    }
+  ],
+  "message": "Business rule violation"
+}
+```
+
+### Duplicate Service in Season
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "DUPLICATE_SERVICE_SEASON",
+      "message": "El servicio ya está habilitado para esta temporada"
+    }
+  ],
+  "message": "Conflict"
+}
+```
+
+### Cannot Delete (In Use)
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "SERVICE_IN_USE",
+      "message": "No se puede eliminar un servicio que está en reservas activas"
+    }
+  ],
+  "message": "Business rule violation"
+}
+```
